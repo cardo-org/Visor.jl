@@ -1,0 +1,9 @@
+*.jl.*.cov
+*.jl.cov
+lcov.info
+*.jl.mem
+/docs/build/
+.vscode
+docs/src/stop_process.md
+Manifest.toml
+.JuliaFormatter.toml

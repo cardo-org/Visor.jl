@@ -1,0 +1,23 @@
+name = "Visor"
+uuid = "cf786855-3531-4b86-ba6e-3e33dce7dcdb"
+authors = ["Attilio Donà"]
+version = "0.1.0"
+
+[deps]
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+
+[compat]
+DataStructures = "0.18"
+julia = "1.6"
+Dates = "1.6"
+Logging = "1.6"
+UUIDs = "1.6"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
