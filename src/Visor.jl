@@ -632,10 +632,17 @@ function unknown_message(sv, msg)
     @warn "[$sv]: received unknown message [$msg]"
 end
 
+function trace(supervisor, msg)
+    if isdefined(Visor, :trace_event)
+        trace_event(supervisor, msg)
+    end
+end
+
 # Supervisor main loop.
 function manage(supervisor)
     try
         for msg in supervisor.inbox
+            trace(supervisor, msg)
             @debug "[$supervisor] manage: $msg"
             if isa(msg, Shutdown)
                 supervisor_shutdown(supervisor, nothing, msg.reset)
@@ -970,7 +977,7 @@ The `message` value is sent to `target` process without waiting for a response.
 """
 function cast(target::Supervised, message)
     put!(target.inbox, message)
-    nothing
+    return nothing
 end
 
 """
@@ -1164,7 +1171,10 @@ function wait_child(supervisor::Supervisor, process::Process)
             if isa(taskerr, Exception)
                 put!(supervisor.inbox, ProcessError(process, taskerr))
             else
-                put!(supervisor.inbox, ProcessError(process, SystemError("process exception")))
+                put!(
+                    supervisor.inbox,
+                    ProcessError(process, SystemError("process exception")),
+                )
             end
         end
     finally
