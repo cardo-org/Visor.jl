@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Messages · Visor.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://cardo-org.github.io/Visor.jl/messages/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.045/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.24/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Visor.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../process/">Process</a></li><li><a class="tocitem" href="../supervisor/">Supervisor</a></li><li class="is-active"><a class="tocitem" href>Messages</a><ul class="internal"><li><a class="tocitem" href="#cast"><span>cast</span></a></li><li><a class="tocitem" href="#call"><span>call</span></a></li></ul></li><li><a class="tocitem" href="../stop_process/">Shutting down</a></li><li><a class="tocitem" href="../no_handler_available/">No exception handler available</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Messages</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Messages</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/cardo-org/Visor.jl/blob/main/docs/src/messages.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Inter-Process-Communication"><a class="docs-heading-anchor" href="#Inter-Process-Communication">Inter Process Communication</a><a id="Inter-Process-Communication-1"></a><a class="docs-heading-anchor-permalink" href="#Inter-Process-Communication" title="Permalink"></a></h1><p>The standard <code>Channel</code> mechanism is used to communicate between <code>process</code> tasks: the <code>inbox</code> channel.</p><p>In addition to <code>put!(process.inbox, message)</code> method to send messages to a <code>process</code> there is a <code>cast</code> function for sending a message (fire and forget message pattern) and  a <code>call</code> function for waiting for a response (request-response message pattern).</p><h2 id="cast"><a class="docs-heading-anchor" href="#cast">cast</a><a id="cast-1"></a><a class="docs-heading-anchor-permalink" href="#cast" title="Permalink"></a></h2><pre><code class="language-julia hljs">cast(self::Supervised, target_id::String, message::Any)</code></pre><p><code>cast</code> sends a <code>message</code> to a task with name <code>target_id</code> and returns immediately.</p><pre><code class="language-julia hljs">using Visor
+
+function controller(self)
+    for msg in self.inbox
+        println(&quot;reservation info: $msg&quot;)
+        if msg[&quot;available&quot;] == 0
+            println(&quot;all booked!&quot;)
+            break
+        end
+    end
+end
+
+function box_office(self)
+    for avail in 50:-10:0
+        seats = Dict(&quot;tot&quot;=&gt;50, &quot;available&quot;=&gt;avail)
+        cast(self, &quot;controller&quot;, seats)
+        sleep(1)
+    end
+end
+
+supervise([process(controller), process(box_office)])</code></pre><h2 id="call"><a class="docs-heading-anchor" href="#call">call</a><a id="call-1"></a><a class="docs-heading-anchor-permalink" href="#call" title="Permalink"></a></h2><pre><code class="language-julia hljs">call(self::Supervised, target_id::String, request::Any, timeout::Real=-1)</code></pre><p><code>call</code> sends a <code>request</code> to a task with name <code>target_id</code> and wait for a response for <code>timeout</code> seconds.</p><p>If <code>timeout</code> is equal to -1 then waits forever, otherwise if a response is not received in <code>timeout</code> seconds an <code>ErrorException</code> is raised.</p><p>The message sent to the target task is a <code>Request</code> struct that contains the request and a channel for sending back the response.</p><pre><code class="language-julia hljs">struct Request &lt;: Message
+    inbox::Channel
+    request::Any
+end</code></pre><pre><code class="language-julia hljs">using Visor
+
+function server(self)
+    for msg in self.inbox
+        is_shutdown(msg) &amp;&amp; break
+        put!(msg.inbox, msg.request*2)
+    end
+end
+
+function requestor(self)
+    request = 10
+    response = call(self, &quot;server&quot;, request)
+    @info &quot;server($request)=$response&quot;
+end
+
+supervise([process(server), process(requestor)]);</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../supervisor/">« Supervisor</a><a class="docs-footer-nextpage" href="../stop_process/">Shutting down »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.25 on <span class="colophon-date" title="Monday 13 November 2023 16:26">Monday 13 November 2023</span>. Using Julia version 1.9.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
