@@ -942,7 +942,7 @@ end
 
 Send a `request` to `target` process and wait for a response.
 """
-function call(target::Supervised, request::Any; timeout::Real=5)
+function call(target::Supervised, request::Any; timeout::Real=3)
     istaskdone(target.task) && throw(ProcessNotRunning(target.id))
 
     resp_cond = Condition()
