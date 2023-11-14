@@ -1,5 +1,10 @@
 include("utils.jl")
 
+include("logger.jl")
+
+DEBUG = get(ENV, "DEBUG", "0")
+logging(; debug=DEBUG == "0" ? [] : [Visor])
+
 shutdown_requested = false
 
 function myprocess(pd)
@@ -48,7 +53,10 @@ terminateif_empty()
 @test shutdown_requested === false
 
 terminateif_shutdown()
-@test shutdown_requested
+@test shutdown_requested === true
+
+# get an opportunity to reset the ROOT supervisor
+yield()
 
 sv = supervise(supervisor("test"; terminateif=:shutdown); wait=false)
 

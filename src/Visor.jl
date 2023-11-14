@@ -64,10 +64,10 @@ mutable struct Supervisor <: Supervised
     period::Int
     strategy::Symbol
     terminateif::Symbol
-    inbox::Channel
     supervisor::Supervisor
+    inbox::Channel
     task::Task
-    function Supervisor(id, intensity=1, period=5, strategy=:one_for_one, terminateif=:auto)
+    function Supervisor(id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)
         return new(
             id,
             OrderedDict(),
@@ -75,7 +75,6 @@ mutable struct Supervisor <: Supervised
             period,
             strategy,
             terminateif,
-            Channel(INBOX_CAPACITY),
         )
     end
     function Supervisor(
@@ -84,7 +83,7 @@ mutable struct Supervisor <: Supervised
         intensity=1,
         period=5,
         strategy=:one_for_one,
-        terminateif=:auto,
+        terminateif=:empty,
     )
         return new(
             id,
@@ -93,7 +92,6 @@ mutable struct Supervisor <: Supervised
             period,
             strategy,
             terminateif,
-            Channel(INBOX_CAPACITY),
             parent,
         )
     end
@@ -536,6 +534,7 @@ function start_processes(
 )::Supervisor
     @debug "[$name]: start_processes with strategy $strategy"
     svisor = Supervisor(parent, name, intensity, period, strategy, terminateif)
+    svisor.inbox = Channel(INBOX_CAPACITY)
     svisor.task = @async manage(svisor)
 
     parent.processes[svisor.id] = svisor
@@ -696,6 +695,7 @@ function manage(supervisor)
                 @debug "[$supervisor]: skipped msg: $msg"
             end
         end
+        close(supervisor.inbox)
     end
 end
 
@@ -782,6 +782,7 @@ function shutdown(sv::Supervisor, reset::Bool=true)
 
     if isdefined(sv, :task) && !istaskdone(sv.task)
         put!(sv.inbox, Shutdown(; reset=reset))
+        close(sv.inbox)
         wait(sv.task)
     end
     reset && empty!(sv.processes)
@@ -1093,23 +1094,25 @@ function supervise(
         error("wrong terminateif type $terminateif: must be one of :empty, :shutdown")
     end
 
-    # relaxed restart because of possible messages of previous
-    # supervise session.
-    isdefined(__ROOT__, :task) && sleep(0.1)
+    if isdefined(__ROOT__, :inbox) && isopen(__ROOT__.inbox)
+        throw(ErrorException("supervise already active"))
+    else
+        
+        __ROOT__.inbox = Channel(INBOX_CAPACITY)
+        sv = start_processes(
+            __ROOT__,
+            specs;
+            intensity=intensity,
+            period=period,
+            strategy=strategy,
+            terminateif=terminateif,
+        )
 
-    sv = start_processes(
-        __ROOT__,
-        specs;
-        intensity=intensity,
-        period=period,
-        strategy=strategy,
-        terminateif=terminateif,
-    )
+        @async wait_signal(__ROOT__)
 
-    @async wait_signal(__ROOT__)
-
-    wait && Visor.wait(sv)
-    return sv
+        wait && Visor.wait(sv)
+        return sv
+    end
 end
 
 """
@@ -1166,7 +1169,7 @@ function wait_child(supervisor::Supervisor, process::Process)
             @debug "[$process] exit on exception: $taskerr"
             put!(supervisor.inbox, ProcessInterrupted(process))
         else
-            @error "[$process] exception: $taskerr"
+            @debug "[$process] exception: $taskerr"
             #showerror(stdout, e, catch_backtrace())
             if isa(taskerr, Exception)
                 put!(supervisor.inbox, ProcessError(process, taskerr))
@@ -1190,6 +1193,6 @@ function wait_child(supervisor::Supervisor, process::Supervisor)
     return put!(supervisor.inbox, ProcessReturn(process))
 end
 
-const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, 1, 5, :one_for_one, :auto)
+const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, 1, 5, :one_for_one, :empty)
 
 end
