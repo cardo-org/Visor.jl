@@ -67,15 +67,10 @@ mutable struct Supervisor <: Supervised
     supervisor::Supervisor
     inbox::Channel
     task::Task
-    function Supervisor(id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)
-        return new(
-            id,
-            OrderedDict(),
-            intensity,
-            period,
-            strategy,
-            terminateif,
-        )
+    function Supervisor(
+        id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
+    )
+        return new(id, OrderedDict(), intensity, period, strategy, terminateif)
     end
     function Supervisor(
         parent::Supervisor,
@@ -85,15 +80,7 @@ mutable struct Supervisor <: Supervised
         strategy=:one_for_one,
         terminateif=:empty,
     )
-        return new(
-            id,
-            OrderedDict(),
-            intensity,
-            period,
-            strategy,
-            terminateif,
-            parent,
-        )
+        return new(id, OrderedDict(), intensity, period, strategy, terminateif, parent)
     end
 end
 
@@ -113,6 +100,7 @@ mutable struct Process <: Supervised
     stop_waiting_after::Float64
     debounce_time::Float64
     thread::Bool
+    onhold::Bool
     inbox::Channel
     function Process(
         supervisor,
@@ -142,11 +130,18 @@ mutable struct Process <: Supervised
                 stop_waiting_after,
                 debounce_time,
                 thread,
+                false,
                 Channel(INBOX_CAPACITY),
             )
         end
     end
 end
+
+clear_hold(process::Process) = process.onhold = false
+clear_hold(process::Supervisor) = nothing
+
+hold(process::Process) = process.onhold = true
+hold(process::Supervisor) = nothing
 
 Base.show(io::IO, process::Supervised) = print(io, "$(process.id)")
 
@@ -423,15 +418,24 @@ function restart_policy(supervisor, process)
             # and then all child processes, including the terminated one, are restarted.
             supervisor_shutdown(supervisor)
             # start again from start
-            for proc in values(supervisor.processes)
-                @debug "restarting $(proc.id)"
-                proc.task = start(proc)
-            end
+            restart_processes(values(supervisor.processes))
         elseif supervisor.strategy === :rest_for_one
             stopped = supervisor_shutdown(supervisor, process)
-            for proc in reverse(stopped)
-                proc.task = start(proc)
-            end
+            restart_processes(reverse(stopped))
+        end
+    end
+end
+
+function restart_processes(procs)
+    for proc in procs
+        proc.task = start(proc)
+        if isdefined(process, :debounce_time) && !isnan(process.debounce_time)
+            sleep(process.debounce_time)
+        end
+        if istaskfailed(proc.task)
+            break
+        else
+            clear_hold(proc)
         end
     end
 end
@@ -570,6 +574,7 @@ function supervisor_shutdown(
     stopped_procs = []
     revs = reverse(collect(values(supervisor.processes)))
     for p in revs
+        hold(p)
         push!(stopped_procs, p)
         if p === failed_proc
             @debug "[$p] failed_proc reached, stopping reverse shutdown"
@@ -598,7 +603,7 @@ function normal_return(supervisor::Supervisor, child::Process)
     @debug "[$child] restart if permanent. restart=$(child.restart)"
     if istaskdone(child.task)
         if child.restart === :permanent
-            restart_policy(supervisor, child)
+            !child.onhold && restart_policy(supervisor, child)
         else
             @debug "[$supervisor] normal_return: delete [$child]"
             delete!(supervisor.processes, child.id)
@@ -614,6 +619,13 @@ function exitby_exception(supervisor::Supervisor, child::Process)
             @debug "[$supervisor] exitby_exception: delete [$child]"
             delete!(supervisor.processes, child.id)
         end
+    end
+end
+
+function exitby_forced_shutdown(supervisor::Supervisor, child::Process)
+    if istaskdone(child.task)
+        @debug "[$supervisor] exitby_forced_shutdown: delete [$child]"
+        delete!(supervisor.processes, child.id)
     end
 end
 
@@ -651,7 +663,7 @@ function manage(supervisor)
                 normal_return(supervisor, msg.process)
             elseif isa(msg, ProcessInterrupted)
                 @debug "[$supervisor]: process [$(msg.process)] forcibly interrupted"
-                exitby_exception(supervisor, msg.process)
+                exitby_forced_shutdown(supervisor, msg.process)
             elseif isa(msg, ProcessError)
                 @debug "[$supervisor]: applying restart policy for [$(msg.process)] ($(Int.(floor.(msg.process.startstamps))))"
                 exitby_exception(supervisor, msg.process)
@@ -1097,7 +1109,6 @@ function supervise(
     if isdefined(__ROOT__, :inbox) && isopen(__ROOT__.inbox)
         throw(ErrorException("supervise already active"))
     else
-        
         __ROOT__.inbox = Channel(INBOX_CAPACITY)
         sv = start_processes(
             __ROOT__,
