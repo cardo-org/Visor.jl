@@ -429,8 +429,8 @@ end
 function restart_processes(procs)
     for proc in procs
         proc.task = start(proc)
-        if isdefined(process, :debounce_time) && !isnan(process.debounce_time)
-            sleep(process.debounce_time)
+        if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
+            sleep(proc.debounce_time)
         end
         if istaskfailed(proc.task)
             break
