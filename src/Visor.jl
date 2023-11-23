@@ -20,6 +20,7 @@ export if_restart
 export process
 export is_request
 export is_shutdown
+export @is_shutdown
 export process
 export receive
 export reply
@@ -799,6 +800,16 @@ function shutdown(sv::Supervisor, reset::Bool=true)
     end
     reset && empty!(sv.processes)
     return nothing
+end
+
+"""
+    @is_shutdown process_descriptor
+    @is_shutdown msg
+
+Break the loop if a shutdown control message is received.
+"""
+macro is_shutdown(msg)
+    :(is_shutdown($(esc(msg))) && break)
 end
 
 """
