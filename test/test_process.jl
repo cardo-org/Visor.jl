@@ -4,7 +4,7 @@ restarted = false
 function fail(self)
     global restarted
 
-    Visor.if_restart(self) do
+    Visor.ifrestart(self) do
         restarted = true
     end
     return error("bang!")
@@ -14,7 +14,7 @@ function normal(self)
     global restarted
     @info "normal invoked"
 
-    Visor.if_restart(self) do
+    Visor.ifrestart(self) do
         restarted = true
     end
 end

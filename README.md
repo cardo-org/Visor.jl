@@ -102,12 +102,12 @@ In the above example the `printer` function is the supervised task function of t
 
 Applications messages sent to the task and the `Shutdown` control message are received from the `td.inbox` Channel.
 
-To check for a termination request use the method `is_shutdown`:
+To check for a termination request use the method `isshutdown`:
 
 ```julia
 function mytask(td)
     for msg in td.inbox
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         end
         # process application messages
@@ -127,7 +127,7 @@ function mytask(td)
 end
 ```
 
-If the task is only interested in checking for shutdown request then the method `is_shutdown(td)` suffice, but in this case remember that other messages in the process inbox are silently discarded.
+If the task is only interested in checking for shutdown request then the method `isshutdown(td)` suffice, but in this case remember that other messages in the process inbox are silently discarded.
 
 `simple-process.jl`:
 
@@ -142,7 +142,7 @@ function worker(td; steps=15, check_interrupt_every=Inf)
             @info "[$(td.id)]: doing $i ..."
             sleep(0.5)
             if i % check_interrupt_every == 0
-                if is_shutdown(td)
+                if isshutdown(td)
                     return
                 end
             end
@@ -174,7 +174,7 @@ To send application messages the standard Channel api may be used or the utiliti
 
 * `cast(td, "path.to.target", message)`: send a message to the node with full name `path.to.target`.
 * `call(td, "path.to.target", request)`: send a request to and wait for a response.
-* `is_request(message)`: check if `message` is a request.
+* `isrequest(message)`: check if `message` is a request.
 * `reply(message, response)`: send the `response` to the `call` method that issued the `message` request .
 
 The following example shows the mechanics of inter-task communication.
@@ -196,11 +196,11 @@ end
 function db_service(td)
     @info "[$td] starting"
     for msg in td.inbox
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         elseif isa(msg, CounterMsg)
             @info "[$td] got message: $msg"
-        elseif is_request(msg)
+        elseif isrequest(msg)
             if isa(msg.request, ControllerMsg)
                 reply(msg, :on)
             end
@@ -218,7 +218,7 @@ function app_counter(td)
 
     while true
         sleep(2)
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
         # send a data message to db_service process
@@ -236,7 +236,7 @@ function app_controller(td)
 
     while true
         sleep(2)
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
 

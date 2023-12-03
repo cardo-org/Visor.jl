@@ -6,7 +6,7 @@ DYN_NAME = "Mildred"
 function server1(self)
     for msg in self.inbox
         @info "[$(self.id)] recv: $msg"
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         elseif msg.request === :get_name
             put!(msg.inbox, NAME)
@@ -17,7 +17,7 @@ end
 function server2(self)
     for msg in self.inbox
         @info "[$(self.id)] recv: $msg"
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         elseif msg.request === :get_name
             put!(msg.inbox, DYN_NAME)

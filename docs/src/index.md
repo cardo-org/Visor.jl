@@ -32,7 +32,7 @@ end
 function level_1_task(td)
     @info "starting $td"
     for msg in td.inbox
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         elseif isa(msg, AppData)
             @info "$td recv: $msg"
@@ -46,7 +46,7 @@ function level_2_task(td)
     n = 0
     while true
         sleep(0.5)
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
         # send a data message to process named level_1_task
@@ -78,27 +78,27 @@ A [Process](@ref) is a supervised task that is started/stopped in a deterministi
 
 A process task function has a mandatory first argument that is a task descriptor `td` value that:
 
-* check if a shutdown request is pending with `is_shutdown`;
+* check if a shutdown request is pending with `isshutdown`;
 * receive messages from the `inbox` Channel;
 
 ```julia
 function level_2_task(td)
     while true
         # do something ...
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
     end
 end
 ```
 
-If the task function is designed to receive messages the argument of `is_shutdown` MUST BE the message and not the `task` object:
+If the task function is designed to receive messages the argument of `isshutdown` MUST BE the message and not the `task` object:
 
 ```julia
 function level_1_task(td)
     for msg in td.inbox
         # check if it is a shutdown request 
-        if is_shutdown(msg)
+        if isshutdown(msg)
             break
         elseif isa(msg, AppMessage)
             # do something with the application message
@@ -147,7 +147,7 @@ function consumer(td)
         msg = take!(td.inbox)
 
         # Check if msg is the shutdown control message ...
-        !is_shutdown(msg) || break
+        !isshutdown(msg) || break
 
         println(msg)
         if msg == 5
@@ -169,7 +169,7 @@ function producer(td)
         cast("consumer", count)
 
         # check if was requested a shutdown (for example by SIGINT signal)
-        !is_shutdown(td) || break
+        !isshutdown(td) || break
 
         count += 1
     end

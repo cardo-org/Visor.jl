@@ -18,7 +18,7 @@ using Visor
 function fair_task(self)
     while true
         println("[$(self.id)] checkpoint ...")
-        if is_shutdown(self)
+        if isshutdown(self)
             println("[$(self.id)] cleanup and resources deallocation")
             break
         end

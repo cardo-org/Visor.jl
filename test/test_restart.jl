@@ -2,13 +2,13 @@ include("utils.jl")
 
 intensity = 2
 restarts = -1
-if_restart_called = false
+ifrestart_called = false
 
 function defective_worker(self)
-    global restarts, if_restart_called
+    global restarts, ifrestart_called
 
-    Visor.if_restart(self) do
-        if_restart_called = true
+    Visor.ifrestart(self) do
+        ifrestart_called = true
     end
 
     @info "defective_worker start"
@@ -25,4 +25,4 @@ children = [
 supervise(children; intensity=intensity)
 
 @test restarts == intensity
-@test if_restart_called
+@test ifrestart_called

@@ -2,7 +2,7 @@ using Visor
 
 function server(task)
     for msg in task.inbox
-        is_shutdown(msg) && break
+        isshutdown(msg) && break
         put!(msg.inbox, msg.request * 2)
     end
     println("server done")

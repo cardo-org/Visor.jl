@@ -61,7 +61,7 @@ using Visor
 
 function server(self)
     for msg in self.inbox
-        is_shutdown(msg) && break
+        isshutdown(msg) && break
         put!(msg.inbox, msg.request*2)
     end
 end

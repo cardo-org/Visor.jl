@@ -9,7 +9,7 @@ function worker(self, steps=15, check_interrupt_every=Inf)
         sleep(1)
         if i % check_interrupt_every == 0
             @info "[$(self.id)]: checkpoint for shutdown request"
-            if Visor.is_shutdown(self)
+            if Visor.isshutdown(self)
                 return nothing
             end
         end

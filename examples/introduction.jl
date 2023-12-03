@@ -12,11 +12,11 @@ function db_service(td)
     @info "[$td] starting"
     try
         for msg in td.inbox
-            if is_shutdown(msg)
+            if isshutdown(msg)
                 break
             elseif isa(msg, CounterMsg)
                 @info "[$td] got message: $msg"
-            elseif is_request(msg)
+            elseif isrequest(msg)
                 if isa(msg.request, ControllerMsg)
                     reply(msg, :on)
                 end
@@ -33,7 +33,7 @@ function app_counter(td)
     n = 0
     while true
         sleep(2)
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
         # send a data message to process named db_service
@@ -47,7 +47,7 @@ function app_controller(td)
     @info "[$td] starting"
     while true
         sleep(2)
-        if is_shutdown(td)
+        if isshutdown(td)
             break
         end
         response = call("db_service", ControllerMsg("select status from ..."))

@@ -11,7 +11,7 @@ function consumer(self)
         msg = take!(self.inbox)
 
         # Check if msg is the shutdown control message ...
-        !is_shutdown(msg) || break
+        !isshutdown(msg) || break
 
         println(msg)
         if msg == 5
@@ -32,7 +32,7 @@ function producer(self)
         cast("consumer", count)
 
         # check if was requested a shutdown (for example by SIGINT signal)
-        !is_shutdown(self) || break
+        !isshutdown(self) || break
 
         count += 1
     end

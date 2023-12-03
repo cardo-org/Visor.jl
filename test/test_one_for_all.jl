@@ -13,7 +13,7 @@ function myworker(self)
     try
         for msg in self.inbox
             @info "[$(self.id)] recv: $msg"
-            if is_shutdown(msg)
+            if isshutdown(msg)
                 break
             elseif msg.request === :get_name
                 put!(msg.inbox, NAME)

@@ -6,7 +6,7 @@ function server(self)
     try
         for msg in self.inbox
             @info "[$(self.id)] recv: $msg"
-            if is_shutdown(msg)
+            if isshutdown(msg)
                 break
             elseif msg.request === :get_name
                 put!(msg.inbox, NAME)
@@ -20,7 +20,7 @@ end
 
 function slow(self)
     for msg in self.inbox
-        is_shutdown(msg) && break
+        isshutdown(msg) && break
         sleep(3)
         reply(msg, "pong")
     end

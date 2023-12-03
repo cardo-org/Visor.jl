@@ -39,7 +39,7 @@ function myworker(self)
     @info "[$self]: terminate"
     #    for msg in self.inbox
     #        @debug "[$(self.id)] recv: $msg"
-    #        if is_shutdown(msg)
+    #        if isshutdown(msg)
     #            push!(stopped, self.id)
     #            break
     #        end

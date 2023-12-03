@@ -28,7 +28,7 @@ function publisher(self)
         msg = fetch(self.inbox)
 
         # Check if msg is the shutdown control message ...
-        !is_shutdown(msg) || break
+        !isshutdown(msg) || break
 
         # otherwise send the data
         if isopen(sock)
@@ -47,7 +47,7 @@ function producer(self)
         cast("publisher", count)
 
         # check if was requested a shutdown (for example by SIGINT signal)
-        !is_shutdown(self) || break
+        !isshutdown(self) || break
 
         count += 1
     end

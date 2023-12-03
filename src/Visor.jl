@@ -16,11 +16,12 @@ export application
 export call
 export cast
 export from
-export if_restart
+export ifrestart
 export process
-export is_request
-export is_shutdown
-export @is_shutdown
+export isprocstarted
+export isrequest
+export isshutdown
+export @isshutdown
 export process
 export receive
 export reply
@@ -65,13 +66,14 @@ mutable struct Supervisor <: Supervised
     period::Int
     strategy::Symbol
     terminateif::Symbol
+    evhandler::Union{Nothing, Function}
     supervisor::Supervisor
     inbox::Channel
     task::Task
     function Supervisor(
-        id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
+        id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty, evhandler=nothing
     )
-        return new(id, OrderedDict(), intensity, period, strategy, terminateif)
+        return new(id, OrderedDict(), intensity, period, strategy, terminateif, evhandler)
     end
     function Supervisor(
         parent::Supervisor,
@@ -80,8 +82,9 @@ mutable struct Supervisor <: Supervised
         period=5,
         strategy=:one_for_one,
         terminateif=:empty,
+        evhandler=nothing
     )
-        return new(id, OrderedDict(), intensity, period, strategy, terminateif, parent)
+        return new(id, OrderedDict(), intensity, period, strategy, terminateif, evhandler, parent)
     end
 end
 
@@ -116,7 +119,7 @@ mutable struct Process <: Supervised
         thread=false,
     )
         begin
-            nulltask = @async () -> ()
+            nulltask = @task () -> ()
             new(
                 supervisor,
                 id,
@@ -175,6 +178,17 @@ function inspect(node::Supervisor, tree::OrderedDict=OrderedDict())
 end
 
 inspect() = inspect(__ROOT__)
+
+isprocstarted(p::Process) = istaskstarted(p.task)
+
+function isprocstarted(name::String)
+    try
+        p = from(name)
+        return isprocstarted(p)
+    catch e
+        return false
+    end
+end
 
 abstract type Spec end
 
@@ -669,10 +683,11 @@ function manage(supervisor)
                 @debug "[$supervisor]: applying restart policy for [$(msg.process)] ($(Int.(floor.(msg.process.startstamps))))"
                 exitby_exception(supervisor, msg.process)
             elseif isa(msg, ProcessFatal)
+                @async evhandler(msg.process, msg)
                 @debug "[$supervisor] manage process fatal: delete [$(msg.process)]"
                 delete!(supervisor.processes, msg.process.id)
-                supervisor_shutdown(supervisor)
-            elseif is_request(msg)
+                #supervisor_shutdown(supervisor)
+            elseif isrequest(msg)
                 try
                     if isa(msg.request, Spec)
                         reply(msg, add_node(supervisor, msg.request))
@@ -702,7 +717,7 @@ function manage(supervisor)
     finally
         while isready(supervisor.inbox)
             msg = take!(supervisor.inbox)
-            if is_request(msg)
+            if isrequest(msg)
                 put!(msg.inbox, ErrorException("[$(msg.request)]: supervisor shutted down"))
             else
                 @debug "[$supervisor]: skipped msg: $msg"
@@ -720,13 +735,13 @@ function force_shutdown(process)
 end
 
 """
-    if_restart(fn, process)
+    ifrestart(fn, process)
 
 Call the no-argument function `fn` if the `process` restarted.
 
 The function `fn` is not executed at the first start of `process`.    
 """
-function if_restart(fn::Function, process::Process)
+function ifrestart(fn::Function, process::Process)
     if process.isrestart
         fn()
     end
@@ -803,13 +818,13 @@ function shutdown(sv::Supervisor, reset::Bool=true)
 end
 
 """
-    @is_shutdown process_descriptor
-    @is_shutdown msg
+    @isshutdown process_descriptor
+    @isshutdown msg
 
 Break the loop if a shutdown control message is received.
 """
-macro is_shutdown(msg)
-    :(is_shutdown($(esc(msg))) && break)
+macro isshutdown(msg)
+    :(isshutdown($(esc(msg))) && break)
 end
 
 """
@@ -820,23 +835,23 @@ Shutdown all supervised nodes.
 shutdown() = shutdown(__ROOT__)
 
 """
-    is_shutdown(msg)
+    isshutdown(msg)
 
 Returns `true` if message `msg` is a shutdown command. 
 """
-is_shutdown(msg) = isa(msg, Shutdown)
+isshutdown(msg) = isa(msg, Shutdown)
 
 """
-    function is_shutdown(process::Supervised)
+    function isshutdown(process::Supervised)
 
 Returns `true` if process has a shutdown command in its inbox.
 
 As a side effect remove messages from process inbox until a `shutdown` request is found.
 """
-function is_shutdown(process::Supervised)
+function isshutdown(process::Supervised)
     while isready(process.inbox)
         msg = take!(process.inbox)
-        if is_shutdown(msg)
+        if isshutdown(msg)
             return true
         end
     end
@@ -918,7 +933,7 @@ Return if a `Shutdown` control message is received.
 function receive(fn::Function, pd::Process)
     while true
         msg = fetch(pd.inbox)
-        is_shutdown(msg) && break
+        isshutdown(msg) && break
         fn(msg)
         take!(pd.inbox)
     end
@@ -939,7 +954,7 @@ using Visor
 
 function server(task)
     for msg in task.inbox
-        is_shutdown(msg) && break
+        isshutdown(msg) && break
         put!(msg.inbox, msg.request * 2)
     end
     println("server done")
@@ -1025,11 +1040,11 @@ function reply(request::Request, response::Any)
 end
 
 """
-    is_request(message)
+    isrequest(message)
 
 Return true if message is a `Request`.
 """
-is_request(message) = isa(message, Request)
+isrequest(message) = isa(message, Request)
 
 if Sys.islinux()
     function handle_signal(signo)::Int
@@ -1073,6 +1088,7 @@ end
               period::Int=5,
               strategy::Symbol=:one_for_one,
               terminateif::Symbol=:empty,
+              handler::Union{Nothing, Function}=nothing,
               wait::Bool=true)::Supervisor
 
 The root supervisor start a family of supervised nodes defined by `specs`.
@@ -1092,7 +1108,9 @@ Return the root supervisor or wait for supervisor termination if `wait` is true.
                      child task and the rest of the child tasks are restarted.
 - `terminateif::Symbol`:
   - `:empty`: terminate the supervisor when all child tasks terminate.
-  - `:shutdown`: the supervisor terminate at shutdown. 
+  - `:shutdown`: the supervisor terminate at shutdown.
+- `handler`: a callback function with prototype `fn(process, event)` invoked when process events occurs:
+when process tasks throws exception and when a process terminate because of a `ProcessFatal` reason.
 - `wait::Bool`: wait for supervised nodes termination.
 
 ```julia
@@ -1106,6 +1124,7 @@ function supervise(
     period::Int=5,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
+    handler::Union{Nothing, Function}=nothing,
     wait::Bool=true,
 )::Supervisor
     if !(strategy in [:one_for_one, :rest_for_one, :one_for_all])
@@ -1121,6 +1140,7 @@ function supervise(
         throw(ErrorException("supervise already active"))
     else
         __ROOT__.inbox = Channel(INBOX_CAPACITY)
+        __ROOT__.evhandler = handler
         sv = start_processes(
             __ROOT__,
             specs;
@@ -1143,6 +1163,7 @@ end
               period::Int=5,
               strategy::Symbol=:one_for_one,
               terminateif::Symbol=:empty,
+              handler::Union{Nothing, Function}=nothing,
               wait::Bool=true)::Supervisor
 
 The root supervisor start a supervised node defined by `spec`.
@@ -1153,6 +1174,7 @@ supervise(
     period::Int=5,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
+    handler::Union{Nothing, Function}=nothing,
     wait::Bool=true,
 )::Supervisor = supervise(
     [spec];
@@ -1160,6 +1182,7 @@ supervise(
     period=period,
     strategy=strategy,
     terminateif=terminateif,
+    handler=handler,
     wait=wait,
 )
 
@@ -1190,8 +1213,12 @@ function wait_child(supervisor::Supervisor, process::Process)
         if isa(taskerr, ProcessInterrupt)
             @debug "[$process] exit on exception: $taskerr"
             put!(supervisor.inbox, ProcessInterrupted(process))
+        elseif isa(taskerr, MethodError)
+            @warn "[$process]: failed to start task: invalid arguments list"
+            put!(supervisor.inbox, ProcessFatal(process))
         else
             @debug "[$process] exception: $taskerr"
+            evhandler(process, taskerr)
             #showerror(stdout, e, catch_backtrace())
             if isa(taskerr, Exception)
                 put!(supervisor.inbox, ProcessError(process, taskerr))
@@ -1213,6 +1240,12 @@ end
 function wait_child(supervisor::Supervisor, process::Supervisor)
     wait(process.task)
     return put!(supervisor.inbox, ProcessReturn(process))
+end
+
+function evhandler(process, event)
+    if __ROOT__.evhandler !== nothing
+        __ROOT__.evhandler(process, event)
+    end
 end
 
 const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, 1, 5, :one_for_one, :empty)
