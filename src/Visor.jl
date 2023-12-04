@@ -23,6 +23,7 @@ export isrequest
 export isshutdown
 export @isshutdown
 export process
+export procs
 export receive
 export reply
 export shutdown
@@ -163,7 +164,7 @@ end
 
 printtree() = printtree(__ROOT__)
 
-function inspect(node::Supervisor, tree::OrderedDict=OrderedDict())
+function procs(node::Supervisor, tree::OrderedDict=OrderedDict())
     children = OrderedDict()
     for p in values(node.processes)
         children[p.id] = p
@@ -171,13 +172,13 @@ function inspect(node::Supervisor, tree::OrderedDict=OrderedDict())
     tree[node.id] = children
     for (id, el) in node.processes
         if isa(el, Supervisor)
-            inspect(el, tree[node.id])
+            procs(el, tree[node.id])
         end
     end
     return tree
 end
 
-inspect() = inspect(__ROOT__)
+procs() = procs(__ROOT__)
 
 isprocstarted(p::Process) = istaskstarted(p.task)
 
@@ -1214,7 +1215,7 @@ function wait_child(supervisor::Supervisor, process::Process)
             @debug "[$process] exit on exception: $taskerr"
             put!(supervisor.inbox, ProcessInterrupted(process))
         elseif isa(taskerr, MethodError)
-            @warn "[$process]: failed to start task: invalid arguments list"
+            @warn "[$process]: task failed: $taskerr"
             put!(supervisor.inbox, ProcessFatal(process))
         else
             @debug "[$process] exception: $taskerr"

@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.3.0
+
+- `procs()`: get the supervised processes a s a nested ordered dict. 
+
+- Fixed @warn message in case of `ProcessFatal`.
+
 ## 0.2.0 (3 December, 2023)
 
 - Renamed functions:
