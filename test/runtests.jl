@@ -35,22 +35,22 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
     @time @safetestset "chain_restart" begin
         include("test_chain_restart.jl")
     end
-#    @time @safetestset "one_for_all" begin
-#        include("test_one_for_all.jl")
-#    end
-#    @time @safetestset "rest_for_one" begin
-#        include("test_rest_for_one.jl")
-#    end
-#    @time @safetestset "shutdown_order" begin
-#        include("test_shutdown_order.jl")
-#    end
-#    @time @safetestset "permanent_supervisor" begin
-#        include("test_permanent_supervisor.jl")
-#    end
-#    @time @safetestset "combo" begin
-#        include("test_combo.jl")
-#    end
-#    @time @safetestset "antipattern" begin
-#        include("test_antipattern.jl")
-#    end
+    @time @safetestset "one_for_all" begin
+        include("test_one_for_all.jl")
+    end
+    @time @safetestset "rest_for_one" begin
+        include("test_rest_for_one.jl")
+    end
+    @time @safetestset "shutdown_order" begin
+        include("test_shutdown_order.jl")
+    end
+    @time @safetestset "permanent_supervisor" begin
+        include("test_permanent_supervisor.jl")
+    end
+    @time @safetestset "combo" begin
+        include("test_combo.jl")
+    end
+    @time @safetestset "antipattern" begin
+        include("test_antipattern.jl")
+    end
 end

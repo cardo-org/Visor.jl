@@ -47,7 +47,7 @@ sleep(2)
 @info "terminating p2"
 terminate_p2(sv)
 
-sleep(2)
+sleep(4)
 @info "terminating all"
 shutdown(sv)
 

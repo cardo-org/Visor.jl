@@ -69,7 +69,6 @@ abstract type Supervised end
 mutable struct Supervisor <: Supervised
     id::String
     status::SupervisedStatus
-    restartprocs::Bool
     processes::OrderedDict{String,Supervised}
     intensity::Int
     period::Int
@@ -80,27 +79,33 @@ mutable struct Supervisor <: Supervised
     inbox::Channel
     task::Task
     function Supervisor(
-        id, intensity=1, period=5, strategy=:one_for_one, terminateif=:empty, evhandler=nothing
-    )
-        return new(id, idle, false, OrderedDict(), intensity, period, strategy, terminateif, evhandler)
-    end
-    function Supervisor(
-        parent::Supervisor,
         id,
+        processes = OrderedDict{String, Supervised}(),
         intensity=1,
         period=5,
         strategy=:one_for_one,
         terminateif=:empty,
         evhandler=nothing
     )
-        return new(id, idle, false, OrderedDict(), intensity, period, strategy, terminateif, evhandler, parent)
+        return new(id, idle, processes, intensity, period, strategy, terminateif, evhandler)
+    end
+    function Supervisor(
+        parent::Supervisor,
+        id,
+        processes = OrderedDict{String, Supervised}(),
+        intensity=1,
+        period=5,
+        strategy=:one_for_one,
+        terminateif=:empty,
+        evhandler=nothing
+    )
+        return new(id, idle, processes, intensity, period, strategy, terminateif, evhandler, parent)
     end
 end
 
 nproc(process::Supervisor) = length(process.processes)
 
 mutable struct Process <: Supervised
-    supervisor::Supervisor
     id::String
     status::SupervisedStatus
     fn::Function
@@ -116,8 +121,8 @@ mutable struct Process <: Supervised
     thread::Bool
     onhold::Bool
     inbox::Channel
+    supervisor::Union{Nothing,Supervisor}
     function Process(
-        supervisor,
         id,
         fn,
         args=(),
@@ -125,13 +130,13 @@ mutable struct Process <: Supervised
         force_interrupt_after=INTERRUPT_PROCESS_AFTER,
         stop_waiting_after=STOP_WAITING_AFTER,
         debounce_time=NaN,
-        restart=:transient,
         thread=false,
+        restart=:transient,
+        supervisor=nothing,
     )
         begin
             nulltask = @task () -> ()
             new(
-                supervisor,
                 id,
                 idle,
                 fn,
@@ -147,6 +152,7 @@ mutable struct Process <: Supervised
                 thread,
                 false,
                 Channel(INBOX_CAPACITY),
+                supervisor,
             )
         end
     end
@@ -201,43 +207,6 @@ function isprocstarted(name::String)
     end
 end
 
-abstract type Spec end
-
-struct SupervisorSpec <: Spec
-    id::String
-    specs::Vector{Spec}
-    intensity::Int
-    period::Int
-    strategy::Symbol
-    terminateif::Symbol
-end
-
-function specof(proc::Supervisor)
-    specs::Vector{Spec} = []
-    for proc in values(proc.processes)
-        push!(specs, specof(proc))
-    end
-    SupervisorSpec(proc.id, specs, proc.intensity, proc.period, proc.strategy, proc.terminateif)
-end
-
-struct ProcessSpec <: Spec
-    id::String
-    fn::Function
-    args::Tuple
-    namedargs::NamedTuple
-    force_interrupt_after::Float64
-    stop_waiting_after::Float64
-    debounce_time::Float64
-    thread::Bool
-    restart::Symbol
-end
-
-function specof(proc::Process)
-    ProcessSpec(proc.id, proc.fn, proc.args, proc.namedargs, proc.force_interrupt_after,
-        proc.stop_waiting_after, proc.debounce_time, proc.thread, proc.restart
-    )
-end
-
 """
     supervisor(id, specs; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)::SupervisorSpec
 
@@ -268,12 +237,12 @@ See [Supervisor](@ref) documentation for more details.
 """
 function supervisor(
     id,
-    specs::Vector{<:Spec}=Spec[];
+    specs::Vector{<:Supervised}=Supervised[];
     intensity=1,
     period=5,
     strategy=:one_for_one,
     terminateif=:empty,
-)::SupervisorSpec
+)::Supervisor
     if !(terminateif in [:shutdown, :empty])
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
@@ -282,17 +251,23 @@ function supervisor(
         error("immediate shutdown of supervisor [$id] with no processes")
     end
 
-    return SupervisorSpec(id, specs, intensity, period, strategy, terminateif)
+    ##    specmap = OrderedDict{String,Supervised}()
+    ##    for spec in specs
+    ##        specmap[id] = spec
+    ##    end
+    return Supervisor(id,
+        OrderedDict{String,Supervised}(map(spec -> spec.id => spec, specs)),
+        intensity, period, strategy, terminateif)
 end
 
 function supervisor(
-    id, spec::Spec; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
-)::SupervisorSpec
+    id, spec::Supervised; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
+)::Supervisor
     if !(terminateif in [:shutdown, :empty])
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
 
-    return SupervisorSpec(id, [spec], intensity, period, strategy, terminateif)
+    return Supervisor(id, OrderedDict(spec.id=>spec), intensity, period, strategy, terminateif)
 end
 
 """
@@ -324,14 +299,14 @@ function process(
     debounce_time::Real=NaN,
     thread::Bool=false,
     restart=:transient,
-)::ProcessSpec
+)::Process
     if !(restart in [:permanent, :temporary, :transient])
         error(
             "wrong restart value $restart: must be one of :permanent, :temporary, :transient",
         )
     end
 
-    return ProcessSpec(
+    return Process(
         id,
         fn,
         args,
@@ -365,12 +340,13 @@ process(
     debounce_time=NaN,
     thread=false,
     restart=:transient,
-)::ProcessSpec = process(
+)::Process = process(
     string(fn),
     fn;
     args=args,
     namedargs=namedargs,
     force_interrupt_after=force_interrupt_after,
+
     debounce_time=debounce_time,
     stop_waiting_after=stop_waiting_after,
     thread=thread,
@@ -418,6 +394,7 @@ function running_nodes(supervisor)
 end
 
 function start(proc::Process)
+    @debug "[$proc] starting task"
     if proc.thread
         proc.task = Threads.@spawn proc.fn(proc, proc.args...; proc.namedargs...)
     else
@@ -464,45 +441,45 @@ function restart_policy(supervisor, process)
         if supervisor.strategy === :one_for_one
             process.task = start(process)
         elseif supervisor.strategy === :one_for_all
-            supervisor.restartprocs = true
             # If a child process terminates, all other child processes are terminated,
             # and then all child processes, including the terminated one, are restarted.
             @debug "[$supervisor] restart strategy: $(supervisor.strategy)"
             supervisor_shutdown(supervisor)
             # start again from start
+            @debug "[$supervisor] restarting processes:[$(format4print(supervisor.processes))]"
             restart_processes(supervisor, values(supervisor.processes))
-            #supervisor.restartprocs = false
         elseif supervisor.strategy === :rest_for_one
-            supervisor.restartprocs = true
             stopped = supervisor_shutdown(supervisor, process)
-            restart_processes(reverse(stopped))
-            supervisor.restartprocs = false
+            restart_processes(supervisor, reverse(stopped))
         end
     end
 end
 
-function restart_processes(procs)
-    for proc in procs
-        proc.task = start(proc)
-        if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
-            sleep(proc.debounce_time)
-        end
-        if istaskfailed(proc.task)
-            break
-        else
-            clear_hold(proc)
-        end
-    end
-end
+##function restart_processes(procs)
+##    for proc in procs
+##        proc.task = start(proc)
+##        if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
+##            @debug "[$proc] waiting for debounce_time $(proc.debounce_time) secs"
+##            sleep(proc.debounce_time)
+##        end
+##        if istaskfailed(proc.task)
+##            @debug "[$proc] task failed"
+##            break
+##        else
+##            clear_hold(proc)
+##        end
+##    end
+##end
 
 function restart_processes(supervisor, procs)
     for proc in procs
-        #proc.task = start(proc)
-        @async startup(supervisor, specof(proc))
+        add_node(supervisor, proc)
         if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
+            @debug "[$proc] waiting for debounce_time $(proc.debounce_time) secs"
             sleep(proc.debounce_time)
         end
         if istaskfailed(proc.task)
+            @debug "[$proc] task failed"
             break
         else
             clear_hold(proc)
@@ -516,7 +493,7 @@ end
 
 Start the supervised nodes defined by `spec` as children of the root supervisor.
 """
-startup(spec::Spec) = startup(__ROOT__, spec)
+startup(spec::Supervised) = startup(__ROOT__, spec)
 
 """
     startup(supervisor::Supervisor, spec::Spec)
@@ -534,58 +511,60 @@ julia> supervise([process(main)]);
 foo process started
 ```
 """
-function startup(supervisor::Supervisor, spec::Spec)
+function startup(supervisor::Supervisor, spec::Supervised)
     return call(supervisor, spec)
 end
 
-function startup(node::Supervised; start_last=true)
-    start(node)
-    if isdefined(node, :supervisor)
-        if start_last
-            node.supervisor.processes[node.id] = node
-        else
-            node.supervisor.processes = merge(
-                OrderedDict(node.id => node), node.supervisor.processes
-            )
-        end
-    end
-end
+#function startup(node::Supervised; start_last=true)
+#    start(node)
+#    if isdefined(node, :supervisor)
+#        if start_last
+#            node.supervisor.processes[node.id] = node
+#        else
+#            node.supervisor.processes = merge(
+#                OrderedDict(node.id => node), node.supervisor.processes
+#            )
+#        end
+#    end
+#end
 
-function add_node(id::String, supervisor::Supervisor, spec::Spec)
+function add_node(id::String, supervisor::Supervisor, spec::Supervised)
     try
-        @info "ADD_NODE: $spec"
-        if isa(spec, SupervisorSpec)
+        @debug "[$supervisor] add proc: [$spec]"
+        if isa(spec, Supervisor)
             # it is a supervisor
             proc = start_processes(
                 supervisor,
                 id,
-                spec.specs;
+                spec.processes;
                 intensity=spec.intensity,
                 period=spec.period,
                 strategy=spec.strategy,
                 terminateif=spec.terminateif,
             )
             @async wait_child(supervisor, proc)
+            return proc
         else
-            proc = Process(
-                supervisor,
-                id,
-                spec.fn,
-                spec.args,
-                spec.namedargs,
-                spec.force_interrupt_after,
-                spec.stop_waiting_after,
-                spec.debounce_time,
-                spec.restart,
-                spec.thread,
-            )
-            start(proc)
+####            proc = Process(
+####                id,
+####                spec.fn,
+####                spec.args,
+####                spec.namedargs,
+####                spec.force_interrupt_after,
+####                spec.stop_waiting_after,
+####                spec.debounce_time,
+####                spec.thread,
+####                spec.restart,
+####                supervisor,
+####            )
+            spec.supervisor = supervisor
+            supervisor.processes[spec.id] = spec
+            start(spec)
+            return spec
         end
-        #@info "[$supervisor] added [$proc]"
-        supervisor.processes[id] = proc
-        return proc
     catch e
         @error "ERR: $e"
+        showerror(stdout, e, catch_backtrace())
     end
 end
 
@@ -596,7 +575,7 @@ end
 # 
 # `add_node` is for internal use: it is not thread safe.
 # For thread safety use the `startup` method.
-function add_node(supervisor::Supervisor, spec::Spec)
+function add_node(supervisor::Supervisor, spec::Supervised)
     id::String = spec.id
 
     ####    if haskey(supervisor.processes, id)
@@ -614,14 +593,14 @@ function start_processes(
     parent::Supervisor, name, specs; intensity, period, strategy, terminateif::Symbol=:empty
 )::Supervisor
     @debug "[$name]: start_processes with strategy $strategy"
-    svisor = Supervisor(parent, name, intensity, period, strategy, terminateif)
+    svisor = Supervisor(parent, name, specs, intensity, period, strategy, terminateif)
     svisor.inbox = Channel(INBOX_CAPACITY)
     svisor.task = @async manage(svisor)
     svisor.status = running
 
     parent.processes[svisor.id] = svisor
 
-    for spec in specs
+    for spec in values(specs)
         add_node(svisor, spec)
     end
     return svisor
@@ -665,6 +644,7 @@ function supervisor_shutdown(
             # shutdown is sequential because in case a node refuses
             # to shutdown remaining nodes aren't shutted down.
             shutdown(p, reset)
+            p.status = done
         end
     end
     return stopped_procs
@@ -684,7 +664,8 @@ function normal_return(supervisor::Supervisor, child::Process)
         if child.restart === :permanent
             !child.onhold && restart_policy(supervisor, child)
         else
-            @debug "[$supervisor] normal_return: delete [$child]"
+            @debug "[$supervisor] normal_return: [$child] done"
+            child.status = done
             #### delete!(supervisor.processes, child.id)
         end
     end
@@ -711,7 +692,8 @@ end
 # A supervisor is never restarted
 function normal_return(supervisor::Supervisor, child::Supervisor)
     if istaskdone(child.task)
-        @debug "[$supervisor] normal_return: delete supervisor [$child]"
+        @debug "[$supervisor] normal_return: supervisor [$child] done"
+        child.status = done
         #### delete!(supervisor.processes, child.id)
     else
         @debug "[$child] spourious return signal: task was restarted"
@@ -736,20 +718,17 @@ end
 
 # Supervisor main loop.
 function manage(supervisor)
-    @info "[$supervisor]: start manage $(pointer_from_objref(supervisor.task))"
-    @info "[$supervisor] inbox channel isopen:$(isopen(supervisor.inbox))"
+    @info "[$supervisor]: start manage"
     try
         for msg in supervisor.inbox
             trace(supervisor, msg)
             @debug "[$supervisor] recv: $msg"
             if isa(msg, Shutdown)
-                supervisor.restartprocs = false
                 supervisor_shutdown(supervisor, nothing, msg.reset)
                 break
             elseif isa(msg, ProcessReturn)
                 @debug "[$supervisor]: process [$(msg.process)] normal termination"
                 normal_return(supervisor, msg.process)
-                msg.process.status = done
             elseif isa(msg, ProcessInterrupted)
                 @debug "[$supervisor]: process [$(msg.process)] forcibly interrupted"
                 exitby_forced_shutdown(supervisor, msg.process)
@@ -764,11 +743,11 @@ function manage(supervisor)
 
                 ### delete!(supervisor.processes, msg.process.id)
                 #supervisor_shutdown(supervisor)
-            elseif isa(msg, Spec)
+            elseif isa(msg, Supervised)
                 add_node(supervisor, msg)
             elseif isrequest(msg)
                 try
-                    if isa(msg.request, Spec)
+                    if isa(msg.request, Supervised)
                         reply(msg, add_node(supervisor, msg.request))
                     elseif isa(msg.request, String)
                         process = from_path(supervisor, msg.request)
@@ -785,19 +764,16 @@ function manage(supervisor)
                 unknown_message(supervisor, msg)
             end
 
-            @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif), restarting $(supervisor.restartprocs)"
-            ##### if supervisor.terminateif === :empty && isempty(supervisor.processes)
+            @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
             if supervisor.terminateif === :empty && isalldone(supervisor)
-                if !supervisor.restartprocs
-                    break
-                end
+                break
             end
         end
     catch e
         @error "[$supervisor]: error: $e"
         showerror(stdout, e, catch_backtrace())
     finally
-        @debug "[$supervisor] terminating $(pointer_from_objref(supervisor.task))"
+        @debug "[$supervisor] terminating"
         while isready(supervisor.inbox)
             msg = take!(supervisor.inbox)
             if isrequest(msg)
@@ -1064,7 +1040,7 @@ end
 Send a `request` to `target` process and wait for a response.
 """
 function call(target::Supervised, request::Any; timeout::Real=3)
-    @debug "[$target] call task: $(pointer_from_objref(target.task))"
+    @debug "[$target] call request: $request"
 
     istaskdone(target.task) && throw(ProcessNotRunning(target.id))
 
@@ -1204,7 +1180,7 @@ when process tasks throws exception and when a process terminate because of a `P
 ```
 """
 function supervise(
-    specs::Vector{<:Spec};
+    specs::Vector{<:Supervised};
     intensity::Int=1,
     period::Int=5,
     strategy::Symbol=:one_for_one,
@@ -1254,7 +1230,7 @@ end
 The root supervisor start a supervised node defined by `spec`.
 """
 supervise(
-    spec::Spec;
+    spec::Supervised;
     intensity::Int=1,
     period::Int=5,
     strategy::Symbol=:one_for_one,
@@ -1324,7 +1300,7 @@ end
 
 function wait_child(supervisor::Supervisor, process::Supervisor)
     wait(process.task)
-    return put!(supervisor.inbox, ProcessReturn(process))
+    put!(supervisor.inbox, ProcessReturn(process))
 end
 
 function evhandler(process, event)
@@ -1333,6 +1309,6 @@ function evhandler(process, event)
     end
 end
 
-const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, 1, 5, :one_for_one, :empty)
+const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, OrderedDict{String, Supervised}(), 1, 5, :one_for_one, :empty)
 
 end
