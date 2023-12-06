@@ -45,9 +45,7 @@ function terminateif_shutdown()
     tim = Timer(request_shutdown, 2)
     @async add_process()
 
-    @info "AAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     supervise(supervisor("dynamic"; terminateif=:shutdown))
-    @info "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
     return close(tim)
 end
 

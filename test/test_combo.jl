@@ -37,7 +37,6 @@ end, 8)
 terminated = true
 
 sleep(1)
-##Visor.procs(Visor.__ROOT__)
 
 wait(sv)
 sleep(1)
