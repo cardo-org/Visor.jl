@@ -47,7 +47,7 @@ name = call(prc, :get_name)
 @test name === DYN_NAME
 
 p1 = startup(process("process-3", server2))
-p2 = startup(process("process-3", server2))
+p2 = startup(process("process-3:$(Visor.uid())", server2))
 @test length(p2.id) > length(p1.id)
 
 # add a composite node

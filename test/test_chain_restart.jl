@@ -10,6 +10,8 @@ using Test
 #  good  bad
 #
 
+ENV["JULIA_DEBUG"] = Visor
+
 restarts = 0
 
 function myworker(self)

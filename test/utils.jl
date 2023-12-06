@@ -1,7 +1,7 @@
 using Visor
 using Test
 
-#ENV["JULIA_DEBUG"] = Visor
+ENV["JULIA_DEBUG"] = Visor
 
 ttrace = Dict()
 
