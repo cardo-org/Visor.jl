@@ -168,19 +168,20 @@ hold(::Supervisor) = nothing
 
 Base.show(io::IO, process::Supervised) = print(io, "$(process.id)")
 
-function printtree(node::Supervisor)
+##function printtree(node::Supervisor)
+function dump(node::Supervisor)
     children = [
-        isa(p, Process) ? p.id : "supervisor:$(p.id)" for p in values(node.processes)
+        isa(p, Process) ? "$(p.id)($(p.status))" : "supervisor:$(p.id)($(p.status))" for p in values(node.processes)
     ]
     println("[$node] nodes: $children")
     for (id, el) in node.processes
         if isa(el, Supervisor)
-            printtree(el)
+            dump(el)
         end
     end
 end
 
-printtree() = printtree(__ROOT__)
+dump() = dump(__ROOT__)
 
 function procs(node::Supervisor, tree::OrderedDict=OrderedDict())
     children = OrderedDict()
@@ -210,11 +211,11 @@ function isprocstarted(name::String)
 end
 
 """
-    supervisor(id, specs; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)::SupervisorSpec
+    supervisor(id, processes; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)::SupervisorSpec
 
-Declare a supervisor of the nodes  defined by the specification `specs`.
+Declare a supervisor of one or more `processes`.
 
-`specs` may be a single specification or a list of specifications.
+`processes` may be a `Process` or an array of `Process`.
 
 ```jldoctest
 julia> using Visor
@@ -239,7 +240,7 @@ See [Supervisor](@ref) documentation for more details.
 """
 function supervisor(
     id,
-    specs::Vector{<:Supervised}=Supervised[];
+    processes::Vector{<:Supervised}=Supervised[];
     intensity=1,
     period=5,
     strategy=:one_for_one,
@@ -249,23 +250,23 @@ function supervisor(
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
 
-    if isempty(specs) && terminateif === :empty
+    if isempty(processes) && terminateif === :empty
         error("immediate shutdown of supervisor [$id] with no processes")
     end
 
     return Supervisor(id,
-        OrderedDict{String,Supervised}(map(spec -> spec.id => spec, specs)),
+        OrderedDict{String,Supervised}(map(spec -> spec.id => spec, processes)),
         intensity, period, strategy, terminateif)
 end
 
 function supervisor(
-    id, spec::Supervised; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
+    id, proc::Supervised; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
 )::Supervisor
     if !(terminateif in [:shutdown, :empty])
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
 
-    return Supervisor(id, OrderedDict(spec.id=>spec), intensity, period, strategy, terminateif)
+    return Supervisor(id, OrderedDict(proc.id=>proc), intensity, period, strategy, terminateif)
 end
 
 """
@@ -466,16 +467,16 @@ end
 
 
 """
-    startup(spec::Spec)
+    startup(proc::Supervised)
 
-Start the supervised nodes defined by `spec` as children of the root supervisor.
+Start the supervised process defined by `proc` as children of the root supervisor.
 """
-startup(spec::Supervised) = startup(__ROOT__, spec)
+startup(proc::Supervised) = startup(__ROOT__, proc)
 
 """
-    startup(supervisor::Supervisor, spec::Spec)
+    startup(supervisor::Supervisor, proc::Supervised)
 
-Start the supervised nodes defined by `spec` as children of `supervisor`.
+Start the supervised process defined by `proc` as child of `supervisor`.
 
 ```jldoctest
 julia> using Visor
@@ -488,45 +489,54 @@ julia> supervise([process(main)]);
 foo process started
 ```
 """
-function startup(supervisor::Supervisor, spec::Supervised)
-    return call(supervisor, spec)
+function startup(supervisor::Supervisor, proc::Supervised)
+    if !isdefined(supervisor, :task) || istaskdone(supervisor.task)
+        # start an empty supervisor
+        @async supervise(Supervised[])
+        yield()
+    end
+    if haskey(supervisor.processes, proc.id)
+        @warn "[$supervisor] already supervisioning proc [$proc]"
+    else
+        call(supervisor, proc)
+    end
 end
 
-function add_node(id::String, supervisor::Supervisor, spec::Supervised)
+function add_node(id::String, supervisor::Supervisor, proc::Supervised)
     try
-        @debug "[$supervisor] starting proc: [$spec]"
-        if isa(spec, Supervisor)
+        @debug "[$supervisor] starting proc: [$proc]"
+        if isa(proc, Supervisor)
             # it is a supervisor
             proc = start_processes(
                 supervisor,
                 id,
-                spec.processes;
-                intensity=spec.intensity,
-                period=spec.period,
-                strategy=spec.strategy,
-                terminateif=spec.terminateif,
+                proc.processes;
+                intensity=proc.intensity,
+                period=proc.period,
+                strategy=proc.strategy,
+                terminateif=proc.terminateif,
             )
             @async wait_child(supervisor, proc)
             return proc
         else
-            spec.supervisor = supervisor
-            supervisor.processes[spec.id] = spec
-            start(spec)
-            return spec
+            proc.supervisor = supervisor
+            supervisor.processes[proc.id] = proc
+            start(proc)
+            return proc
         end
     catch e
-        @error "[$supervisor] starting proc [$spec]: $e"
+        @error "[$supervisor] starting proc [$proc]: $e"
     end
 end
 
-#     add_node(supervisor::Supervisor, spec::Spec)
+#     add_node(supervisor::Supervisor, proc::Supervised)
 # 
-# Add and start the process defined by specification `spec` to the `supervisor` list
+# Add and start the process defined by `proc` to the `supervisor` list
 # of managed processes.
 # 
 # `add_node` is for internal use: it is not thread safe.
 # For thread safety use the `startup` method.
-add_node(supervisor::Supervisor, spec::Supervised) = add_node(spec.id, supervisor, spec)
+add_node(supervisor::Supervisor, proc::Supervised) = add_node(proc.id, supervisor, proc)
 
 
 # Start processes defined by `specs` specification.
@@ -535,24 +545,24 @@ add_node(supervisor::Supervisor, spec::Supervised) = add_node(spec.id, superviso
 # `intensity` and `period` define process restart policy.
 # `strategy` defines how to restart child processes.
 function start_processes(
-    parent::Supervisor, name, specs; intensity, period, strategy, terminateif::Symbol=:empty
+    parent::Supervisor, name, procs; intensity, period, strategy, terminateif::Symbol=:empty
 )::Supervisor
     @debug "[$name]: start_processes with strategy $strategy"
-    svisor = Supervisor(parent, name, specs, intensity, period, strategy, terminateif)
+    svisor = Supervisor(parent, name, procs, intensity, period, strategy, terminateif)
     svisor.inbox = Channel(INBOX_CAPACITY)
     svisor.task = @async manage(svisor)
     svisor.status = running
 
     parent.processes[svisor.id] = svisor
 
-    for spec in values(specs)
+    for spec in values(procs)
         add_node(svisor, spec)
     end
     return svisor
 end
 
 function start_processes(
-    svisor::Supervisor, childspecs; intensity, period, strategy, terminateif::Symbol=:empty
+    svisor::Supervisor, processes; intensity, period, strategy, terminateif::Symbol=:empty
 )::Supervisor
     @debug "[$svisor]: start_processes with strategy $strategy"
     svisor.task = @async manage(svisor)
@@ -563,7 +573,7 @@ function start_processes(
     svisor.strategy = strategy
     svisor.terminateif = terminateif
 
-    for spec in childspecs
+    for spec in processes
         add_node(svisor, spec)
     end
     return svisor
@@ -1089,7 +1099,7 @@ function wait_signal(sv)
 end
 
 """
-    supervise(childspecs::Vector{<:Spec};
+    supervise(processes::Vector{<:Supervised};
               intensity::Int=1,
               period::Int=5,
               strategy::Symbol=:one_for_one,
@@ -1097,7 +1107,7 @@ end
               handler::Union{Nothing, Function}=nothing,
               wait::Bool=true)::Supervisor
 
-The root supervisor start a family of supervised nodes defined by `specs`.
+The root supervisor start a family of supervised `processes`.
 
 Return the root supervisor or wait for supervisor termination if `wait` is true. 
 
@@ -1125,7 +1135,7 @@ when process tasks throws exception and when a process terminate because of a `P
 ```
 """
 function supervise(
-    specs::Vector{<:Supervised};
+    processes::Vector{<:Supervised};
     intensity::Int=1,
     period::Int=5,
     strategy::Symbol=:one_for_one,
@@ -1149,7 +1159,7 @@ function supervise(
         __ROOT__.evhandler = handler
         sv = start_processes(
             __ROOT__,
-            specs;
+            processes;
             intensity=intensity,
             period=period,
             strategy=strategy,
@@ -1164,7 +1174,7 @@ function supervise(
 end
 
 """
-    supervise(spec::Spec;
+    supervise(proc::Supervised;
               intensity::Int=1,
               period::Int=5,
               strategy::Symbol=:one_for_one,
@@ -1172,10 +1182,10 @@ end
               handler::Union{Nothing, Function}=nothing,
               wait::Bool=true)::Supervisor
 
-The root supervisor start a supervised node defined by `spec`.
+The root supervisor start a supervised process defined by `proc`.
 """
 supervise(
-    spec::Supervised;
+    proc::Supervised;
     intensity::Int=1,
     period::Int=5,
     strategy::Symbol=:one_for_one,
@@ -1183,7 +1193,7 @@ supervise(
     handler::Union{Nothing,Function}=nothing,
     wait::Bool=true,
 )::Supervisor = supervise(
-    [spec];
+    [proc];
     intensity=intensity,
     period=period,
     strategy=strategy,
