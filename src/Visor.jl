@@ -168,7 +168,6 @@ hold(::Supervisor) = nothing
 
 Base.show(io::IO, process::Supervised) = print(io, "$(process.id)")
 
-##function printtree(node::Supervisor)
 function dump(node::Supervisor)
     children = [
         isa(p, Process) ? "$(p.id)($(p.status))" : "supervisor:$(p.id)($(p.status))" for p in values(node.processes)
@@ -255,7 +254,7 @@ function supervisor(
     end
 
     return Supervisor(id,
-        OrderedDict{String,Supervised}(map(spec -> spec.id => spec, processes)),
+        OrderedDict{String,Supervised}(map(proc -> proc.id => proc, processes)),
         intensity, period, strategy, terminateif)
 end
 
@@ -496,7 +495,7 @@ function startup(supervisor::Supervisor, proc::Supervised)
         yield()
     end
     if haskey(supervisor.processes, proc.id)
-        @warn "[$supervisor] already supervisioning proc [$proc]"
+        @warn "[$supervisor] already supervisioning proc [$proc]" && !istaskdone(supervisor.processes[proc.id].task)
     else
         call(supervisor, proc)
     end
@@ -555,8 +554,8 @@ function start_processes(
 
     parent.processes[svisor.id] = svisor
 
-    for spec in values(procs)
-        add_node(svisor, spec)
+    for proc in values(procs)
+        add_node(svisor, proc)
     end
     return svisor
 end
@@ -573,8 +572,8 @@ function start_processes(
     svisor.strategy = strategy
     svisor.terminateif = terminateif
 
-    for spec in processes
-        add_node(svisor, spec)
+    for proc in processes
+        add_node(svisor, proc)
     end
     return svisor
 end
