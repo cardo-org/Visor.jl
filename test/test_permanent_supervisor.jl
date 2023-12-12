@@ -41,3 +41,5 @@ wait(handle)
 delta = time() - t
 @info "delta time for transient supervisor: $delta secs"
 @test delta < 0.1
+
+shutdown(handle)

@@ -82,26 +82,39 @@ mutable struct Supervisor <: Supervised
     task::Task
     function Supervisor(
         id,
-        processes = OrderedDict{String, Supervised}(),
+        processes=OrderedDict{String,Supervised}(),
         intensity=1,
         period=5,
         strategy=:one_for_one,
         terminateif=:empty,
-        evhandler=nothing
+        evhandler=nothing,
     )
-        return new(id, idle, processes, intensity, period, strategy, terminateif, evhandler, [])
+        return new(
+            id, idle, processes, intensity, period, strategy, terminateif, evhandler, []
+        )
     end
     function Supervisor(
         parent::Supervisor,
         id,
-        processes = OrderedDict{String, Supervised}(),
+        processes=OrderedDict{String,Supervised}(),
         intensity=1,
         period=5,
         strategy=:one_for_one,
         terminateif=:empty,
-        evhandler=nothing
+        evhandler=nothing,
     )
-        return new(id, idle, processes, intensity, period, strategy, terminateif, evhandler, [], parent)
+        return new(
+            id,
+            idle,
+            processes,
+            intensity,
+            period,
+            strategy,
+            terminateif,
+            evhandler,
+            [],
+            parent,
+        )
     end
 end
 
@@ -170,7 +183,8 @@ Base.show(io::IO, process::Supervised) = print(io, "$(process.id)")
 
 function dump(node::Supervisor)
     children = [
-        isa(p, Process) ? "$(p.id)($(p.status))" : "supervisor:$(p.id)($(p.status))" for p in values(node.processes)
+        isa(p, Process) ? "$(p.id)($(p.status))" : "supervisor:$(p.id)($(p.status))" for
+        p in values(node.processes)
     ]
     println("[$node] nodes: $children")
     for (id, el) in node.processes
@@ -253,9 +267,14 @@ function supervisor(
         error("immediate shutdown of supervisor [$id] with no processes")
     end
 
-    return Supervisor(id,
+    return Supervisor(
+        id,
         OrderedDict{String,Supervised}(map(proc -> proc.id => proc, processes)),
-        intensity, period, strategy, terminateif)
+        intensity,
+        period,
+        strategy,
+        terminateif,
+    )
 end
 
 function supervisor(
@@ -265,7 +284,9 @@ function supervisor(
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
 
-    return Supervisor(id, OrderedDict(proc.id=>proc), intensity, period, strategy, terminateif)
+    return Supervisor(
+        id, OrderedDict(proc.id => proc), intensity, period, strategy, terminateif
+    )
 end
 
 """
@@ -344,7 +365,6 @@ process(
     args=args,
     namedargs=namedargs,
     force_interrupt_after=force_interrupt_after,
-
     debounce_time=debounce_time,
     stop_waiting_after=stop_waiting_after,
     thread=thread,
@@ -439,7 +459,7 @@ function restart_policy(supervisor, process)
             # and then all child processes, including the terminated one, are restarted.
             @debug "[$supervisor] restart strategy: $(supervisor.strategy)"
             stopped = supervisor_shutdown(supervisor)
-            supervisor.restarts = stopped 
+            supervisor.restarts = stopped
         elseif supervisor.strategy === :rest_for_one
             stopped = supervisor_shutdown(supervisor, process)
             supervisor.restarts = stopped
@@ -457,13 +477,10 @@ function restart_processes(supervisor, procs)
         if istaskfailed(proc.task)
             @debug "[$proc] task failed"
             break
-        else
-            clear_hold(proc)
         end
     end
-    supervisor.restarts = []
+    return supervisor.restarts = []
 end
-
 
 """
     startup(proc::Supervised)
@@ -494,8 +511,9 @@ function startup(supervisor::Supervisor, proc::Supervised)
         @async supervise(Supervised[])
         yield()
     end
-    if haskey(supervisor.processes, proc.id)
-        @warn "[$supervisor] already supervisioning proc [$proc]" && !istaskdone(supervisor.processes[proc.id].task)
+    if haskey(supervisor.processes, proc.id) &&
+        !istaskdone(supervisor.processes[proc.id].task)
+        @warn "[$supervisor] already supervisioning proc [$proc]"
     else
         call(supervisor, proc)
     end
@@ -516,13 +534,13 @@ function add_node(id::String, supervisor::Supervisor, proc::Supervised)
                 terminateif=proc.terminateif,
             )
             @async wait_child(supervisor, proc)
-            return proc
         else
             proc.supervisor = supervisor
             supervisor.processes[proc.id] = proc
             start(proc)
-            return proc
         end
+        clear_hold(proc)
+        return proc
     catch e
         @error "[$supervisor] starting proc [$proc]: $e"
     end
@@ -536,7 +554,6 @@ end
 # `add_node` is for internal use: it is not thread safe.
 # For thread safety use the `startup` method.
 add_node(supervisor::Supervisor, proc::Supervised) = add_node(proc.id, supervisor, proc)
-
 
 # Start processes defined by `specs` specification.
 # A dedicated supervisor is created and attached to parent supervisor if `parent`
@@ -586,6 +603,7 @@ function supervisor_shutdown(
     stopped_procs = []
     revs = reverse(collect(values(supervisor.processes)))
     for p in revs
+        @debug "[$p] set onhold"
         hold(p)
         push!(stopped_procs, p)
         if p === failed_proc
@@ -617,7 +635,10 @@ function normal_return(supervisor::Supervisor, child::Process)
         if child.restart === :permanent
             !child.onhold && restart_policy(supervisor, child)
         else
-            @debug "[$supervisor] normal_return: [$child] done"
+            @debug "[$supervisor] normal_return: [$child] done, onhold:$(child.onhold)"
+            if !child.onhold
+                delete!(supervisor.processes, child.id)
+            end
             child.status = done
         end
     end
@@ -661,7 +682,7 @@ end
 
 function isalldone(supervisor)
     res = all(proc -> proc.status === done, values(supervisor.processes))
-    res
+    return res
 end
 
 # Supervisor main loop.
@@ -712,11 +733,10 @@ function manage(supervisor)
             if !isempty(supervisor.restarts)
                 @debug "[$supervisor] to be restarted: $(format4print(supervisor.restarts))"
                 # check all required processes are terminated
-                if all(proc->proc.status!==running, supervisor.restarts)
+                if all(proc -> proc.status !== running, supervisor.restarts)
                     @debug "[$supervisor] restarting processes"
                     restart_processes(supervisor, supervisor.restarts)
                 end
-
             end
 
             @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
@@ -837,7 +857,7 @@ end
 Break the loop if a shutdown control message is received.
 """
 macro isshutdown(msg)
-    :(isshutdown($(esc(msg))) && break)
+    return :(isshutdown($(esc(msg))) && break)
 end
 
 """
@@ -1254,7 +1274,7 @@ end
 
 function wait_child(supervisor::Supervisor, process::Supervisor)
     wait(process.task)
-    put!(supervisor.inbox, ProcessReturn(process))
+    return put!(supervisor.inbox, ProcessReturn(process))
 end
 
 function evhandler(process, event)
@@ -1263,6 +1283,8 @@ function evhandler(process, event)
     end
 end
 
-const __ROOT__::Supervisor = Supervisor(ROOT_SUPERVISOR, OrderedDict{String, Supervised}(), 1, 5, :one_for_one, :empty)
+const __ROOT__::Supervisor = Supervisor(
+    ROOT_SUPERVISOR, OrderedDict{String,Supervised}(), 1, 5, :one_for_one, :empty
+)
 
 end
