@@ -1283,6 +1283,8 @@ function evhandler(process, event)
     end
 end
 
+supervise() = wait(__ROOT__)
+
 const __ROOT__::Supervisor = Supervisor(
     ROOT_SUPERVISOR, OrderedDict{String,Supervised}(), 1, 5, :one_for_one, :empty
 )
