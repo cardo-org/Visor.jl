@@ -6,6 +6,10 @@
 
 - Fixed @warn message in case of `ProcessFatal`.
 
+- Add `hassupervised(name)` function.
+
+- `from(path)` return `nothing` instead of throwing an exception if process identified by `path` is not found.  
+
 ## 0.2.0 (3 December, 2023)
 
 - Renamed functions:

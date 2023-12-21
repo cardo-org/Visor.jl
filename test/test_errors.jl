@@ -21,7 +21,7 @@ running = Visor.nproc(sv)
 
 @test_throws Visor.UnknownProcess call("invalid-process", :some_data)
 
-@test_throws Visor.UnknownProcess getrunning(sv)
+@test_throws MethodError getrunning(sv)
 
 @test_throws ErrorException process(worker, restart=:invalid_restart)
 

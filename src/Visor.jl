@@ -18,6 +18,7 @@ export cast
 export from
 export ifrestart
 export process
+export hassupervised
 export isprocstarted
 export isrequest
 export isshutdown
@@ -717,6 +718,9 @@ function manage(supervisor)
                         reply(msg, add_node(supervisor, msg.request))
                     elseif isa(msg.request, String)
                         process = from_path(supervisor, msg.request)
+                        if process === nothing
+                            throw(UnknownProcess(msg.request))
+                        end
                         put!(msg.inbox, process)
                     else
                         unknown_message(supervisor, msg.request)
@@ -840,7 +844,6 @@ end
 # Stops all managed children processes and terminate supervisor `process`.
 function shutdown(sv::Supervisor, reset::Bool=true)
     @debug "[$sv] supervisor: shutdown request (reset=$reset)"
-
     if isdefined(sv, :task) && !istaskdone(sv.task)
         put!(sv.inbox, Shutdown(; reset=reset))
         close(sv.inbox)
@@ -900,6 +903,20 @@ function wait_response(resp_cond, ch)
     end
 end
 
+"""
+    hassupervised(name::String)
+
+Determine whether the supervised identified by `name` exists.    
+"""
+function hassupervised(name::String)
+    try
+        from(name)
+        return true
+    catch
+        return false
+    end
+end
+
 #     from_supervisor(start_node::Supervisor, name::String)::Supervised
 # 
 # Return the supervised node identified by relative or full qualified name `name`.
@@ -909,7 +926,7 @@ end
 # 
 # If using a relative qualified name, for example `foo.bar`, the search starts
 # from `start_node` supervisor.
-function from_supervisor(sv::Supervisor, name::String)::Supervised
+function from_supervisor(sv::Supervisor, name::String)
     return from_path(sv, name)
 end
 
@@ -926,7 +943,7 @@ then the full name of `mytask` process is `mysupervisor.mytask`.
 """
 from(name::String) = from_supervisor(__ROOT__, name)
 
-function from_path(start_node::Supervised, path)::Supervised
+function from_path(start_node::Supervised, path)
     if path == NODE_SEP
         return root_supervisor(start_node)
     elseif startswith(path, NODE_SEP)
@@ -953,7 +970,7 @@ function from_path(start_node::Supervised, path)::Supervised
             return from_path(child, join(tokens[2:end], NODE_SEP))
         end
     end
-    throw(UnknownProcess(path))
+    return nothing
 end
 
 """
@@ -1005,6 +1022,9 @@ supervise([process(server), process(requestor)])
 """
 function call(name::String, request::Any; timeout::Real=3)
     target_process = from_supervisor(__ROOT__, name)
+    if target_process === nothing
+        throw(UnknownProcess(name))
+    end
     return call(target_process, request; timeout=timeout)
 end
 
