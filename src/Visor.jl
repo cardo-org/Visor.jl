@@ -3,6 +3,13 @@ module Visor
 using DataStructures
 using UUIDs
 
+period = 5
+
+"""
+Maximun numbers of restart in period seconds.
+"""
+intensity = 1
+
 const ROOT_SUPERVISOR = "root"
 const NODE_SEP = "."
 
@@ -509,7 +516,14 @@ foo process started
 function startup(supervisor::Supervisor, proc::Supervised)
     if !isdefined(supervisor, :task) || istaskdone(supervisor.task)
         # start an empty supervisor
-        @async supervise(Supervised[])
+        @async supervise(
+            Supervised[],
+            intensity=supervisor.intensity,
+            period=supervisor.period,
+            strategy=supervisor.strategy,
+            terminateif=supervisor.terminateif,
+            handler=supervisor.evhandler,
+        )
         yield()
     end
     if haskey(supervisor.processes, proc.id) &&
@@ -1303,10 +1317,70 @@ function evhandler(process, event)
     end
 end
 
-supervise() = wait(__ROOT__)
+function supervise()
+    return Base.wait(__ROOT__)
+end
+
+"""
+    setroot(;
+        intensity::Int=1,
+        period::Int=5,
+        strategy::Symbol=:one_for_one,
+        terminateif::Symbol=:empty,
+        handler::Union{Nothing,Function}=nothing,
+    )
+
+Setup root supervisor settings.
+"""
+setroot(;
+    intensity::Int=1,
+    period::Int=5,
+    strategy::Symbol=:one_for_one,
+    terminateif::Symbol=:empty,
+    handler::Union{Nothing,Function}=nothing,
+) = setsupervisor(
+    __ROOT__;
+    intensity=intensity,
+    period=period,
+    strategy=strategy,
+    terminateif=terminateif,
+    handler=handler,
+)
+
+"""
+    setsupervisor(sv::Supervisor;
+        intensity::Int=1,
+        period::Int=5,
+        strategy::Symbol=:one_for_one,
+        terminateif::Symbol=:empty,
+        handler::Union{Nothing,Function}=nothing,
+    )
+
+Setup supervisor settings.
+"""
+function setsupervisor(
+    sv::Supervisor;
+    intensity::Int=1,
+    period::Int=5,
+    strategy::Symbol=:one_for_one,
+    terminateif::Symbol=:empty,
+    handler::Union{Nothing,Function}=nothing,
+)
+    sv.intensity = intensity
+    sv.period = period
+    sv.strategy = strategy
+    sv.terminateif = terminateif
+    sv.evhandler = handler
+    return sv
+end
 
 const __ROOT__::Supervisor = Supervisor(
-    ROOT_SUPERVISOR, OrderedDict{String,Supervised}(), 1, 5, :one_for_one, :empty
+    ROOT_SUPERVISOR,
+    OrderedDict{String,Supervised}(),
+    intensity,
+    period,
+    :one_for_one,
+    :empty,
 )
 
 end

@@ -2,7 +2,9 @@
 
 ## 0.3.0
 
-- `procs()`: get the supervised processes a s a nested ordered dict. 
+- Setup supervisors settings with `setsupervisor` and `setroot` functions.
+
+- `procs()`: get the supervised processes as a nested ordered dict.
 
 - Fixed @warn message in case of `ProcessFatal`.
 
