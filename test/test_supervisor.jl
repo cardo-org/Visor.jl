@@ -12,7 +12,7 @@ function myprocess(pd)
 end
 
 function add_process()
-    sleep(1)
+    sleep(5)
     return startup(from("dynamic"), process(myprocess))
 end
 

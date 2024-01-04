@@ -26,6 +26,7 @@ function server2(self)
 end
 
 function sv1_process(pd)
+    @info "[$pd] task running"
     return sleep(1)
 end
 
@@ -55,5 +56,5 @@ prc = startup(supervisor("sv-1", process(sv1_process)))
 @test from("sv-1.sv1_process") === prc.processes["sv1_process"]
 
 Visor.procs(sv)
-
+sleep(2)
 shutdown(sv)

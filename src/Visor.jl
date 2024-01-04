@@ -134,7 +134,6 @@ mutable struct Process <: Supervised
     fn::Function
     args::Tuple
     namedargs::NamedTuple
-    task::Task
     startstamps::Vector{Float64}
     restart::Symbol
     isrestart::Bool
@@ -145,6 +144,7 @@ mutable struct Process <: Supervised
     onhold::Bool
     inbox::Channel
     supervisor::Union{Nothing,Supervisor}
+    task::Task
     function Process(
         id,
         fn,
@@ -158,14 +158,14 @@ mutable struct Process <: Supervised
         supervisor=nothing,
     )
         begin
-            nulltask = @task () -> ()
+            #nulltask = @async () -> ()
             new(
                 id,
                 idle,
                 fn,
                 args,
                 namedargs,
-                nulltask,
+                #nulltask,
                 Float64[],
                 restart,
                 false,
@@ -418,7 +418,13 @@ function running_nodes(supervisor)
     return collect(Iterators.filter(p -> !istaskdone(p.task), values(supervisor.processes)))
 end
 
+isrunning(proc) = isdefined(proc, :task) && !istaskdone(proc.task)
+
 function start(proc::Process)
+    isrunning(proc) && return
+    
+    clear_hold(proc)
+
     if proc.thread
         proc.task = Threads.@spawn proc.fn(proc, proc.args...; proc.namedargs...)
     else
@@ -431,7 +437,9 @@ function start(proc::Process)
 end
 
 function start(sv::Supervisor)
-    @debug "[$sv] supervisor: starting"
+    isrunning(sv) && return
+
+    @debug "[$sv] supervisor starting"
     sv.inbox = Channel(INBOX_CAPACITY)
     sv.task = @async manage(sv)
     sv.status = running
@@ -441,7 +449,11 @@ function start(sv::Supervisor)
         @debug "[$sv]: starting [$node]"
         start(node)
     end
-    @async wait_child(sv.supervisor, sv)
+    if isdefined(sv, :supervisor)
+        @async wait_child(sv.supervisor, sv)
+    else
+        (sv.id !== ROOT_SUPERVISOR) && @error "[$sv] undefined supervisor"
+    end
     return sv.task
 end
 
@@ -477,7 +489,7 @@ end
 
 function restart_processes(supervisor, procs)
     for proc in procs
-        add_node(supervisor, proc)
+        start(proc)
         if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
             @debug "[$proc] waiting for debounce_time $(proc.debounce_time) secs"
             sleep(proc.debounce_time)
@@ -514,90 +526,69 @@ foo process started
 ```
 """
 function startup(supervisor::Supervisor, proc::Supervised)
-    if !isdefined(supervisor, :task) || istaskdone(supervisor.task)
-        # start an empty supervisor
-        @async supervise(
-            Supervised[],
-            intensity=supervisor.intensity,
-            period=supervisor.period,
-            strategy=supervisor.strategy,
-            terminateif=supervisor.terminateif,
-            handler=supervisor.evhandler,
-        )
-        yield()
-    end
     if haskey(supervisor.processes, proc.id) &&
         !istaskdone(supervisor.processes[proc.id].task)
         @warn "[$supervisor] already supervisioning proc [$proc]"
     else
-        call(supervisor, proc)
+        add_node(supervisor, proc)
+
+        # start now if the supervisor control task is running
+        if isdefined(supervisor, :task)
+            start(proc)
+        end
     end
+    proc
 end
 
-function add_node(id::String, supervisor::Supervisor, proc::Supervised)
+"""
+    add_node(supervisor::Supervisor, proc::Supervised)
+
+Add supervised `proc` to the children's collection of the controlling `supervisor`.
+"""
+function add_node(supervisor::Supervisor, proc::Supervised)
     try
         @debug "[$supervisor] starting proc: [$proc]"
         if isa(proc, Supervisor)
-            # it is a supervisor
-            proc = start_processes(
+            add_supervisor(
                 supervisor,
-                id,
-                proc.processes;
-                intensity=proc.intensity,
-                period=proc.period,
-                strategy=proc.strategy,
-                terminateif=proc.terminateif,
+                proc
             )
-            @async wait_child(supervisor, proc)
         else
             proc.supervisor = supervisor
             supervisor.processes[proc.id] = proc
-            start(proc)
         end
-        clear_hold(proc)
         return proc
     catch e
         @error "[$supervisor] starting proc [$proc]: $e"
     end
 end
 
-#     add_node(supervisor::Supervisor, proc::Supervised)
-# 
-# Add and start the process defined by `proc` to the `supervisor` list
-# of managed processes.
-# 
-# `add_node` is for internal use: it is not thread safe.
-# For thread safety use the `startup` method.
-add_node(supervisor::Supervisor, proc::Supervised) = add_node(proc.id, supervisor, proc)
-
-# Start processes defined by `specs` specification.
-# A dedicated supervisor is created and attached to parent supervisor if `parent`
-# is a supervisor instance.
-# `intensity` and `period` define process restart policy.
-# `strategy` defines how to restart child processes.
-function start_processes(
-    parent::Supervisor, name, procs; intensity, period, strategy, terminateif::Symbol=:empty
+function add_supervisor(
+    parent::Supervisor, svisor::Supervisor
 )::Supervisor
-    @debug "[$name]: start_processes with strategy $strategy"
-    svisor = Supervisor(parent, name, procs, intensity, period, strategy, terminateif)
-    svisor.inbox = Channel(INBOX_CAPACITY)
-    svisor.task = @async manage(svisor)
-    svisor.status = running
+    @debug "[$parent]: add supervisor [$svisor]"
 
     parent.processes[svisor.id] = svisor
+    svisor.supervisor = parent
 
-    for proc in values(procs)
+    for proc in values(svisor.processes)
         add_node(svisor, proc)
     end
     return svisor
 end
 
-function start_processes(
+"""
+    add_processes(
+        svisor::Supervisor, processes; intensity, period, strategy, terminateif::Symbol=:empty
+    )::Supervisor
+
+Setup hierarchy relationship between supervisor and supervised list of processes
+and configure supervisor behavior.
+"""
+function add_processes(
     svisor::Supervisor, processes; intensity, period, strategy, terminateif::Symbol=:empty
 )::Supervisor
-    @debug "[$svisor]: start_processes with strategy $strategy"
-    svisor.task = @async manage(svisor)
-    svisor.status = running
+    @debug "[$svisor]: add_processes with strategy $strategy"
 
     svisor.intensity = intensity
     svisor.period = period
@@ -1210,7 +1201,7 @@ function supervise(
     else
         __ROOT__.inbox = Channel(INBOX_CAPACITY)
         __ROOT__.evhandler = handler
-        sv = start_processes(
+        sv = add_processes(
             __ROOT__,
             processes;
             intensity=intensity,
@@ -1219,9 +1210,7 @@ function supervise(
             terminateif=terminateif,
         )
 
-        @async wait_signal(__ROOT__)
-
-        wait && Visor.wait(sv)
+        supervise(wait)
         return sv
     end
 end
@@ -1254,6 +1243,12 @@ supervise(
     handler=handler,
     wait=wait,
 )
+
+function supervise(wait::Bool=true)
+    @async wait_signal(__ROOT__)
+    start(__ROOT__)
+    wait && return Base.wait(__ROOT__)
+end
 
 # 
 #     wait(sv::Supervisor)
@@ -1315,10 +1310,6 @@ function evhandler(process, event)
     if __ROOT__.evhandler !== nothing
         __ROOT__.evhandler(process, event)
     end
-end
-
-function supervise()
-    return Base.wait(__ROOT__)
 end
 
 """

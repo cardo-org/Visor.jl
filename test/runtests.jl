@@ -54,3 +54,5 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
         include("test_antipattern.jl")
     end
 end
+
+@info "expected tests: 43" 

@@ -26,3 +26,5 @@ supervise(children; intensity=intensity)
 
 @test restarts == intensity
 @test ifrestart_called
+
+shutdown()

@@ -65,3 +65,5 @@ wait(handle)
 for (tst, result) in ttrace
     @test result
 end
+
+shutdown()
