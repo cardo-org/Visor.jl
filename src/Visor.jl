@@ -158,14 +158,12 @@ mutable struct Process <: Supervised
         supervisor=nothing,
     )
         begin
-            #nulltask = @async () -> ()
             new(
                 id,
                 idle,
                 fn,
                 args,
                 namedargs,
-                #nulltask,
                 Float64[],
                 restart,
                 false,
@@ -179,6 +177,10 @@ mutable struct Process <: Supervised
             )
         end
     end
+end
+
+function __init__()
+    @async wait_signal(__ROOT__)
 end
 
 clear_hold(process::Process) = process.onhold = false
@@ -420,9 +422,16 @@ end
 
 isrunning(proc) = isdefined(proc, :task) && !istaskdone(proc.task)
 
+function startchildren(sv::Supervisor)
+    for node in values(sv.processes)
+        @debug "[$sv]: starting [$node]"
+        start(node)
+    end
+end
+
 function start(proc::Process)
-    isrunning(proc) && return
-    
+    isrunning(proc) && return nothing
+
     clear_hold(proc)
 
     if proc.thread
@@ -437,7 +446,11 @@ function start(proc::Process)
 end
 
 function start(sv::Supervisor)
-    isrunning(sv) && return
+    if isrunning(sv)
+        # start the children
+        startchildren(sv)
+        return nothing
+    end
 
     @debug "[$sv] supervisor starting"
     sv.inbox = Channel(INBOX_CAPACITY)
@@ -445,16 +458,21 @@ function start(sv::Supervisor)
     sv.status = running
 
     @debug "[$sv] task: $(pointer_from_objref(sv.task))"
-    for node in values(sv.processes)
-        @debug "[$sv]: starting [$node]"
-        start(node)
-    end
+    startchildren(sv)
     if isdefined(sv, :supervisor)
         @async wait_child(sv.supervisor, sv)
     else
         (sv.id !== ROOT_SUPERVISOR) && @error "[$sv] undefined supervisor"
     end
     return sv.task
+end
+
+function startchain(proc)
+    if isdefined(proc, :supervisor) && !isdefined(proc.supervisor, :task)
+        startchain(proc.supervisor)
+    else
+        start(proc)
+    end
 end
 
 # Supervised restart logic based on `intensity`, `period` and `strategy` parameters.
@@ -526,8 +544,9 @@ foo process started
 ```
 """
 function startup(supervisor::Supervisor, proc::Supervised)
-    if haskey(supervisor.processes, proc.id) &&
-        !istaskdone(supervisor.processes[proc.id].task)
+    if isdefined(proc, :task) &&
+        haskey(supervisor.processes, proc.id) &&
+        !istaskdone(proc.task)
         @warn "[$supervisor] already supervisioning proc [$proc]"
     else
         add_node(supervisor, proc)
@@ -537,7 +556,7 @@ function startup(supervisor::Supervisor, proc::Supervised)
             start(proc)
         end
     end
-    proc
+    return proc
 end
 
 """
@@ -549,10 +568,7 @@ function add_node(supervisor::Supervisor, proc::Supervised)
     try
         @debug "[$supervisor] starting proc: [$proc]"
         if isa(proc, Supervisor)
-            add_supervisor(
-                supervisor,
-                proc
-            )
+            add_supervisor(supervisor, proc)
         else
             proc.supervisor = supervisor
             supervisor.processes[proc.id] = proc
@@ -563,9 +579,7 @@ function add_node(supervisor::Supervisor, proc::Supervised)
     end
 end
 
-function add_supervisor(
-    parent::Supervisor, svisor::Supervisor
-)::Supervisor
+function add_supervisor(parent::Supervisor, svisor::Supervisor)::Supervisor
     @debug "[$parent]: add supervisor [$svisor]"
 
     parent.processes[svisor.id] = svisor
@@ -1041,7 +1055,7 @@ Send a `request` to `target` process and wait for a response.
 function call(target::Supervised, request::Any; timeout::Real=3)
     @debug "[$target] call request: $request"
 
-    istaskdone(target.task) && throw(ProcessNotRunning(target.id))
+    #istaskdone(target.task) && throw(ProcessNotRunning(target.id))
 
     resp_cond = Condition()
     inbox = Channel(1)
@@ -1138,7 +1152,6 @@ function wait_signal(sv)
             handle_ptr = @cfunction(handle_signal, Bool, (UInt32,))
             ccall(:SetConsoleCtrlHandler, Bool, (Ptr{Cvoid}, Bool), handle_ptr, true)
         end
-        wait(sv.task)
     end
 end
 
@@ -1245,7 +1258,7 @@ supervise(
 )
 
 function supervise(wait::Bool=true)
-    @async wait_signal(__ROOT__)
+    #@async wait_signal(__ROOT__)
     start(__ROOT__)
     wait && return Base.wait(__ROOT__)
 end
