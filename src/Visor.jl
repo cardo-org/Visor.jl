@@ -445,9 +445,11 @@ function start(proc::Process)
     return proc.task
 end
 
+start() = start(__ROOT__)
+
 function start(sv::Supervisor)
     if isrunning(sv)
-        # start the children
+        # this supervisor is running but perhaps the children need to be started
         startchildren(sv)
         return nothing
     end
@@ -468,7 +470,8 @@ function start(sv::Supervisor)
 end
 
 function startchain(proc)
-    if isdefined(proc, :supervisor) && !isdefined(proc.supervisor, :task)
+    if isdefined(proc, :supervisor) && 
+        (!isdefined(proc.supervisor, :task) || istaskdone(proc.supervisor.task))
         startchain(proc.supervisor)
     else
         start(proc)
@@ -552,7 +555,7 @@ function startup(supervisor::Supervisor, proc::Supervised)
         add_node(supervisor, proc)
 
         # start now if the supervisor control task is running
-        if isdefined(supervisor, :task)
+        if isdefined(supervisor, :task) && !istaskdone(supervisor.task)
             start(proc)
         end
     end
@@ -781,6 +784,7 @@ function manage(supervisor)
             end
         end
         close(supervisor.inbox)
+        supervisor.status = idle
     end
 end
 
@@ -857,6 +861,7 @@ function shutdown(node::Process, _reset::Bool=true)
         if @isdefined timer
             close(timer)
         end
+        node.status = idle
     end
 end
 
@@ -867,6 +872,7 @@ function shutdown(sv::Supervisor, reset::Bool=true)
         put!(sv.inbox, Shutdown(; reset=reset))
         close(sv.inbox)
         wait(sv.task)
+        sv.status = idle
     end
     reset && empty!(sv.processes)
     return nothing
