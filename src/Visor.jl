@@ -23,8 +23,8 @@ export application
 export call
 export cast
 export from
+export getphase
 export ifrestart
-export process
 export hassupervised
 export isprocstarted
 export isrequest
@@ -34,6 +34,7 @@ export process
 export procs
 export receive
 export reply
+export setphase
 export shutdown
 export startup
 export supervise
@@ -52,7 +53,7 @@ struct Request <: Message
     request::Any
 end
 
-Base.show(io::IO, message::Request) = print(io, "$(message.request)")
+Base.show(io::IO, message::Request) = show(io, message.request)
 
 Base.@kwdef struct Shutdown <: Command
     reset::Bool = true
@@ -78,6 +79,7 @@ abstract type Supervised end
 mutable struct Supervisor <: Supervised
     id::String
     status::SupervisedStatus
+    phase::Symbol
     processes::OrderedDict{String,Supervised}
     intensity::Int
     period::Int
@@ -98,7 +100,16 @@ mutable struct Supervisor <: Supervised
         evhandler=nothing,
     )
         return new(
-            id, idle, processes, intensity, period, strategy, terminateif, evhandler, []
+            id,
+            idle,
+            :undef,
+            processes,
+            intensity,
+            period,
+            strategy,
+            terminateif,
+            evhandler,
+            [],
         )
     end
     function Supervisor(
@@ -114,6 +125,7 @@ mutable struct Supervisor <: Supervised
         return new(
             id,
             idle,
+            :undef,
             processes,
             intensity,
             period,
@@ -131,6 +143,7 @@ nproc(process::Supervisor) = length(process.processes)
 mutable struct Process <: Supervised
     id::String
     status::SupervisedStatus
+    phase::Symbol
     fn::Function
     args::Tuple
     namedargs::NamedTuple
@@ -161,6 +174,7 @@ mutable struct Process <: Supervised
             new(
                 id,
                 idle,
+                :undef,
                 fn,
                 args,
                 namedargs,
@@ -179,6 +193,10 @@ mutable struct Process <: Supervised
     end
 end
 
+setphase(node::Supervised, phase::Symbol) = node.phase = phase
+
+getphase(node::Supervised) = node.phase
+
 function __init__()
     @async wait_signal(__ROOT__)
 end
@@ -189,7 +207,7 @@ clear_hold(::Supervisor) = nothing
 hold(process::Process) = process.onhold = true
 hold(::Supervisor) = nothing
 
-Base.show(io::IO, process::Supervised) = print(io, "$(process.id)")
+Base.show(io::IO, process::Supervised) = print(io, process.id)
 
 function dump(node::Supervisor)
     children = [
@@ -303,7 +321,7 @@ end
     process(id, fn;
             args=(),
             namedargs=(;),
-            force_interrupt_after::Real=0,
+            force_interrupt_after::Real=1.0,
             stop_waiting_after::Real=Inf,
             debounce_time=NaN,
             thread=false,
@@ -414,6 +432,9 @@ struct ProcessInterrupt <: Exception
     id::String
 end
 
+"Trigger a supervisor resync"
+struct SupervisorResync end
+
 ## include("supervisor.jl")
 # Returns the list of running nodes supervised by `supervisor` (processes and supervisors direct children).
 function running_nodes(supervisor)
@@ -470,7 +491,7 @@ function start(sv::Supervisor)
 end
 
 function startchain(proc)
-    if isdefined(proc, :supervisor) && 
+    if isdefined(proc, :supervisor) &&
         (!isdefined(proc.supervisor, :task) || istaskdone(proc.supervisor.task))
         startchain(proc.supervisor)
     else
@@ -708,29 +729,44 @@ function isalldone(supervisor)
     return res
 end
 
+"""
+    resync(supervisor)
+
+Restart processes previously stopped by supervisor policies.
+
+Return true if all supervised processes terminated.
+"""
+function resync(supervisor)
+    if !isempty(supervisor.restarts)
+        @debug "[$supervisor] to be restarted: $(format4print(supervisor.restarts))"
+        # check all required processes are terminated
+        if all(proc -> proc.status !== running, supervisor.restarts)
+            @debug "[$supervisor] restarting processes"
+            restart_processes(supervisor, supervisor.restarts)
+        end
+    end
+
+    @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
+    if supervisor.terminateif === :empty && isalldone(supervisor)
+        return true
+    end
+    return false
+end
+
 # Supervisor main loop.
 function manage(supervisor)
     @debug "[$supervisor] start supervisor event loop"
     try
         for msg in supervisor.inbox
-            trace(supervisor, msg)
             @debug "[$supervisor] recv: $msg"
             if isa(msg, Shutdown)
                 supervisor_shutdown(supervisor, nothing, msg.reset)
                 break
-            elseif isa(msg, ProcessReturn)
-                @debug "[$supervisor]: process [$(msg.process)] normal termination"
-                normal_return(supervisor, msg.process)
-            elseif isa(msg, ProcessInterrupted)
-                @debug "[$supervisor]: process [$(msg.process)] forcibly interrupted"
-                exitby_forced_shutdown(supervisor, msg.process)
-            elseif isa(msg, ProcessError)
-                @debug "[$supervisor]: applying restart policy for [$(msg.process)] ($(Int.(floor.(msg.process.startstamps))))"
-                msg.process.status = failed
-                exitby_exception(supervisor, msg.process)
+            elseif isa(msg, SupervisorResync)
+                # do nothing here, just a resync() is needed
             elseif isa(msg, ProcessFatal)
                 @async evhandler(msg.process, msg)
-                @debug "[$supervisor] manage process fatal: delete [$(msg.process)]"
+                @debug "[$supervisor] manage process fatal: process done [$(msg.process)]"
                 msg.process.status = done
             elseif isa(msg, Supervised)
                 add_node(supervisor, msg)
@@ -749,24 +785,13 @@ function manage(supervisor)
                         put!(msg.inbox, ErrorException("unknown message [$(msg.request)]"))
                     end
                 catch e
-                    #showerror(stdout, e, catch_backtrace())
                     put!(msg.inbox, e)
                 end
             else
                 unknown_message(supervisor, msg)
             end
 
-            if !isempty(supervisor.restarts)
-                @debug "[$supervisor] to be restarted: $(format4print(supervisor.restarts))"
-                # check all required processes are terminated
-                if all(proc -> proc.status !== running, supervisor.restarts)
-                    @debug "[$supervisor] restarting processes"
-                    restart_processes(supervisor, supervisor.restarts)
-                end
-            end
-
-            @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
-            if supervisor.terminateif === :empty && isalldone(supervisor)
+            if resync(supervisor)
                 break
             end
         end
@@ -1290,26 +1315,26 @@ end
 function wait_child(supervisor::Supervisor, process::Process)
     try
         wait(process.task)
-        put!(supervisor.inbox, ProcessReturn(process))
+        normal_return(supervisor, process)
+        trace(supervisor, ProcessReturn(process))
     catch e
         taskerr = e.task.exception
+        process.status = failed
         if isa(taskerr, ProcessInterrupt)
-            @debug "[$process] exit on exception: $taskerr"
-            put!(supervisor.inbox, ProcessInterrupted(process))
-            #        elseif isa(taskerr, MethodError)
-            #            @warn "[$process]: task failed: $taskerr"
-            #            put!(supervisor.inbox, ProcessFatal(process))
+            @debug "[$supervisor]: process [$process] forcibly interrupted"
+            exitby_forced_shutdown(supervisor, process)
+            trace(supervisor, ProcessInterrupted(process))
         else
             @debug "[$process] exception: $taskerr"
             evhandler(process, taskerr)
-            #showerror(stdout, e, catch_backtrace())
+            @debug "[$supervisor]: applying restart policy for [$process] ($(Int.(floor.(process.startstamps))))"
+            exitby_exception(supervisor, process)
+            trace(supervisor, ProcessInterrupted(process))
+
             if isa(taskerr, Exception)
-                put!(supervisor.inbox, ProcessError(process, taskerr))
+                trace(supervisor, ProcessError(process, taskerr))
             else
-                put!(
-                    supervisor.inbox,
-                    ProcessError(process, SystemError("process exception")),
-                )
+                trace(supervisor, ProcessError(process, SystemError("process exception")))
             end
         end
     finally
@@ -1317,12 +1342,15 @@ function wait_child(supervisor::Supervisor, process::Process)
             @debug "removing temporary process $process"
             delete!(supervisor.processes, process.id)
         end
+        put!(supervisor.inbox, SupervisorResync())
     end
 end
 
 function wait_child(supervisor::Supervisor, process::Supervisor)
     wait(process.task)
-    return put!(supervisor.inbox, ProcessReturn(process))
+    normal_return(supervisor, process)
+    put!(supervisor.inbox, SupervisorResync())
+    return nothing
 end
 
 function evhandler(process, event)
