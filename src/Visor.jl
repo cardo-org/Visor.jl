@@ -514,7 +514,12 @@ function restart_policy(supervisor, process)
         if !isnan(process.debounce_time)
             sleep(process.debounce_time)
         end
-        if supervisor.strategy === :one_for_one
+
+        if process.status === idle
+            # a shutdown was issued, terminate the restarts
+            @debug "[$process]: honore the shutdown request"
+            delete!(supervisor.processes, process.id)
+        elseif supervisor.strategy === :one_for_one
             process.task = start(process)
         elseif supervisor.strategy === :one_for_all
             # If a child process terminates, all other child processes are terminated,
@@ -658,7 +663,7 @@ function supervisor_shutdown(
             @debug "[$p] skipping shutdown: task already done"
         else
             # shutdown is sequential because in case a node refuses
-            # to shutdown remaining nodes aren't shutted down.
+            # to shutdown remaining nodes aren't shut down.
             shutdown(p, reset)
         end
     end
@@ -803,7 +808,7 @@ function manage(supervisor)
         while isready(supervisor.inbox)
             msg = take!(supervisor.inbox)
             if isrequest(msg)
-                put!(msg.inbox, ErrorException("[$(msg.request)]: supervisor shutted down"))
+                put!(msg.inbox, ErrorException("[$(msg.request)]: supervisor shut down"))
             else
                 @debug "[$supervisor]: skipped msg: $msg"
             end
