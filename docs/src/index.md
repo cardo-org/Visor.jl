@@ -175,7 +175,7 @@ function producer(td)
     end
 end
 
-# Tasks are started following the list order and are shutted down in reverse order:
+# Tasks are started following the list order and are shut down in reverse order:
 # producer is started last and terminated first.
 tasks = [
     process(consumer)
