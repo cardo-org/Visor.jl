@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.4.0
+
+- Update supervisor status at process termination [#3](https://github.com/cardo-org/Visor.jl/issues/3)
+
 ## 0.3.0
 
 - Setup supervisors settings with `setsupervisor` and `setroot` functions.
