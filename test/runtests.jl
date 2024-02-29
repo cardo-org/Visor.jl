@@ -61,4 +61,4 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
     end
 end
 
-@info "expected tests: 43"
+@info "expected tests: 49"
