@@ -1,10 +1,14 @@
 # Change Log
 
-## 0.4.0
+## 0.5.0 (29 February, 2024)
+
+- Fix `one_for_all` and `rest_for_all` strategies [#5](https://github.com/cardo-org/Visor.jl/issues/5)
+
+## 0.4.0 (1 February, 2024)
 
 - Update supervisor status at process termination [#3](https://github.com/cardo-org/Visor.jl/issues/3)
 
-## 0.3.0
+## 0.3.0 (24 January, 2024)
 
 - Setup supervisors settings with `setsupervisor` and `setroot` functions.
 
