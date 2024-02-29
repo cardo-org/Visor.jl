@@ -35,8 +35,14 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
     @time @safetestset "chain_restart" begin
         include("test_chain_restart.jl")
     end
+    @time @safetestset "one_for_all_terminate" begin
+        include("test_one_for_all_terminate.jl")
+    end
     @time @safetestset "one_for_all" begin
         include("test_one_for_all.jl")
+    end
+    @time @safetestset "rest_for_one_terminate" begin
+        include("test_rest_for_one_terminate.jl")
     end
     @time @safetestset "rest_for_one" begin
         include("test_rest_for_one.jl")
@@ -55,4 +61,4 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
     end
 end
 
-@info "expected tests: 43" 
+@info "expected tests: 43"

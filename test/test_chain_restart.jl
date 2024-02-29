@@ -33,3 +33,5 @@ p1_specs = [process("good", myworker), process("bad", faulty)]
 handle = supervise([supervisor("sv", p1_specs; intensity=2)])
 
 @test restarts === 2
+
+shutdown()

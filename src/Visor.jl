@@ -508,6 +508,18 @@ function restart_policy(supervisor, process)
     @debug "[$process] process retry startstamps: $(process.startstamps)"
     if length(process.startstamps) > supervisor.intensity
         @warn "[$process]: reached max of $(supervisor.intensity) restarts in $(supervisor.period) secs period"
+
+        # removing failed processes make possible to manually startup again
+        stopped = [process]
+        if supervisor.strategy === :one_for_all
+            stopped = supervisor_shutdown(supervisor)
+        elseif supervisor.strategy === :rest_for_one
+            stopped = supervisor_shutdown(supervisor, process)
+        end
+
+        for p in stopped
+            delete!(supervisor.processes, p.id)
+        end
         put!(supervisor.inbox, ProcessFatal(process))
     else
         process.isrestart = true
@@ -899,8 +911,10 @@ end
 function shutdown(sv::Supervisor, reset::Bool=true)
     @debug "[$sv] supervisor: shutdown request (reset=$reset)"
     if isdefined(sv, :task) && !istaskdone(sv.task)
-        put!(sv.inbox, Shutdown(; reset=reset))
-        close(sv.inbox)
+        if isopen(sv.inbox)
+            put!(sv.inbox, Shutdown(; reset=reset))
+            close(sv.inbox)
+        end
         wait(sv.task)
         sv.status = idle
     end
