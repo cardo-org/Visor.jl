@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.6.0 (4 March, 2024)
+
+- Add 'one_terminate_all' supervisor strategy.
+
 ## 0.5.0 (29 February, 2024)
 
 - Fix `one_for_all` and `rest_for_all` strategies [#5](https://github.com/cardo-org/Visor.jl/issues/5)

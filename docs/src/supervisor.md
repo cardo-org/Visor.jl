@@ -74,8 +74,11 @@ The `strategy` option defines the restart policy and it is one of:
 * `:one_for_one`
 * `:one_for_all`
 * `:rest_for_one`
+* `:one_terminate_all`
 
-The design of the restart strategy follows Erlang behavoir, see [Erlang documentation](https://www.erlang.org/doc/design_principles/sup_princ.html#restart-strategy) for a comprehensive explanation.
+The design of the restart strategies `:one_for_one`, `:one_for_all` and `:rest_for_one` follows Erlang behavoir, see [Erlang documentation](https://www.erlang.org/doc/design_principles/sup_princ.html#restart-strategy) for a comprehensive explanation.
+
+The strategy `:one_terminate_all` terminate all supervised processes as soon as the first one terminate, either normally or by an exception.
 
 Finally there can be two types of life span for supervisor: `:permanent` and `:transient`.
 

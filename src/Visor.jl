@@ -690,10 +690,25 @@ function root_supervisor(process::Supervised)
     return root_supervisor(process.supervisor)
 end
 
+function terminate_others(proc)
+    try
+        for (name, p) in collect(proc.supervisor.processes)
+            if p !== proc
+                p.status = idle
+                @async shutdown(p)
+            end
+        end
+    catch e
+        @info e
+    end
+end
+
 function normal_return(supervisor::Supervisor, child::Process)
     @debug "[$child] restart if permanent. restart=$(child.restart)"
     if istaskdone(child.task)
-        if child.restart === :permanent
+        if supervisor.strategy === :one_terminate_all
+            terminate_others(child)
+        elseif child.restart === :permanent
             !child.onhold && restart_policy(supervisor, child)
         else
             @debug "[$supervisor] normal_return: [$child] done, onhold:$(child.onhold)"
@@ -707,7 +722,9 @@ end
 
 function exitby_exception(supervisor::Supervisor, child::Process)
     if istaskdone(child.task)
-        if child.restart !== :temporary
+        if supervisor.strategy === :one_terminate_all
+            terminate_others(child)
+        elseif child.restart !== :temporary
             restart_policy(supervisor, child)
         else
             @debug "[$supervisor] exitby_exception: delete [$child]"
@@ -742,7 +759,7 @@ function trace(supervisor, msg)
 end
 
 function isalldone(supervisor)
-    res = all(proc -> proc.status === done, values(supervisor.processes))
+    res = all(proc -> proc.status in [done, idle], values(supervisor.processes))
     return res
 end
 
@@ -1224,11 +1241,13 @@ Return the root supervisor or wait for supervisor termination if `wait` is true.
 - `period::Int`: time interval that controls the restart intensity.
 - `strategy::Symbol`: defines the restart strategy:
   - `:one_for_one`: only the terminated task is restarted.
-  - `:one_for_all`: if a child task terminates, all other child tasks are terminated, and then all child,
+  - `:one_for_all`: if a child task terminates, all other tasks are terminated, and then all children,
                     including the terminated one, are restarted.
-  - `:rest_for_one`: if a child task terminates, the rest of the child tasks (that is, the child tasks 
+  - `:rest_for_one`: if a child task terminates, the rest of the children tasks (that is, the child tasks 
                      after the terminated process in start order) are terminated. Then the terminated
                      child task and the rest of the child tasks are restarted.
+  - `:one_terminate_all`: if a child task terminates then the remaining tasks will be concurrently terminated
+                          (the startup order is not respected).
 - `terminateif::Symbol`:
   - `:empty`: terminate the supervisor when all child tasks terminate.
   - `:shutdown`: the supervisor terminate at shutdown.
@@ -1250,7 +1269,7 @@ function supervise(
     handler::Union{Nothing,Function}=nothing,
     wait::Bool=true,
 )::Supervisor
-    if !(strategy in [:one_for_one, :rest_for_one, :one_for_all])
+    if !(strategy in [:one_for_one, :rest_for_one, :one_for_all, :one_terminate_all])
         error(
             "wrong strategy $strategy: must be one of :one_for_one, :rest_for_one, :one_for_all",
         )
