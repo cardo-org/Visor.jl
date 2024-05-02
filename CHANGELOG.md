@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.6.1 (2 May, 2024)
+
+- If already active supervise() add processes instead of throwing an exception.  
+
 ## 0.6.0 (4 March, 2024)
 
 - Add 'one_terminate_all' supervisor strategy.

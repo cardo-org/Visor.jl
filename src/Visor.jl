@@ -427,7 +427,7 @@ struct ProcessFatal <: ExitReason
     process::Supervised
 end
 
-# Scheduled by supervisor when forcing process node shutdown. 
+# Scheduled by supervisor when forcing process node shutdown.
 struct ProcessInterrupt <: Exception
     id::String
 end
@@ -657,7 +657,7 @@ function add_processes(
 end
 
 # Terminate all child processes in startup reverse order.
-# If invoked with a `failed_proc` argument it terminates the processes as far as `failed_proc`. 
+# If invoked with a `failed_proc` argument it terminates the processes as far as `failed_proc`.
 function supervisor_shutdown(
     supervisor, failed_proc::Union{Supervised,Nothing}=nothing, reset::Bool=false
 )
@@ -859,7 +859,7 @@ end
 
 Call the no-argument function `fn` if the `process` restarted.
 
-The function `fn` is not executed at the first start of `process`.    
+The function `fn` is not executed at the first start of `process`.
 """
 function ifrestart(fn::Function, process::Process)
     if process.isrestart
@@ -894,7 +894,7 @@ end
 """
     shutdown(node)
 
-Try to shutdown a process or a supervisor. 
+Try to shutdown a process or a supervisor.
 
 If `node` is a supervisor it first attempts to shutdown all children nodes and then it stop the supervisor.
 If some process refuse to shutdown the `node` supervisor is not stopped.
@@ -959,7 +959,7 @@ shutdown() = shutdown(__ROOT__)
 """
     isshutdown(msg)
 
-Returns `true` if message `msg` is a shutdown command. 
+Returns `true` if message `msg` is a shutdown command.
 """
 isshutdown(msg) = isa(msg, Shutdown)
 
@@ -992,7 +992,7 @@ end
 """
     hassupervised(name::String)
 
-Determine whether the supervised identified by `name` exists.    
+Determine whether the supervised identified by `name` exists.
 """
 function hassupervised(name::String)
     try
@@ -1004,12 +1004,12 @@ function hassupervised(name::String)
 end
 
 #     from_supervisor(start_node::Supervisor, name::String)::Supervised
-# 
+#
 # Return the supervised node identified by relative or full qualified name `name`.
-# 
+#
 # If `name` start with a dot, for example `.foo.bar`, then the process search starts
 # from the root supervisor.
-# 
+#
 # If using a relative qualified name, for example `foo.bar`, the search starts
 # from `start_node` supervisor.
 function from_supervisor(sv::Supervisor, name::String)
@@ -1025,7 +1025,7 @@ Given for example the process `mytask` supervised by `mysupervisor`:
 
     supervisor("mysupervisor", [process(mytask)])
 
-then the full name of `mytask` process is `mysupervisor.mytask`.              
+then the full name of `mytask` process is `mysupervisor.mytask`.
 """
 from(name::String) = from_supervisor(__ROOT__, name)
 
@@ -1081,10 +1081,10 @@ end
 Send a `request` to the process identified by full `name` and wait for a response.
 
 If `timeout` is equal to -1 then waits forever, otherwise if a response is not received
-in `timeout` seconds an `ErrorException` is raised. 
+in `timeout` seconds an `ErrorException` is raised.
 
 The message sent to the target task is a `Request` struct that contains the request and a channel for sending back the response.
-    
+
 ```julia
 using Visor
 
@@ -1233,7 +1233,7 @@ end
 
 The root supervisor start a family of supervised `processes`.
 
-Return the root supervisor or wait for supervisor termination if `wait` is true. 
+Return the root supervisor or wait for supervisor termination if `wait` is true.
 
 # Arguments
 
@@ -1243,7 +1243,7 @@ Return the root supervisor or wait for supervisor termination if `wait` is true.
   - `:one_for_one`: only the terminated task is restarted.
   - `:one_for_all`: if a child task terminates, all other tasks are terminated, and then all children,
                     including the terminated one, are restarted.
-  - `:rest_for_one`: if a child task terminates, the rest of the children tasks (that is, the child tasks 
+  - `:rest_for_one`: if a child task terminates, the rest of the children tasks (that is, the child tasks
                      after the terminated process in start order) are terminated. Then the terminated
                      child task and the rest of the child tasks are restarted.
   - `:one_terminate_all`: if a child task terminates then the remaining tasks will be concurrently terminated
@@ -1279,7 +1279,13 @@ function supervise(
     end
 
     if isdefined(__ROOT__, :inbox) && isopen(__ROOT__.inbox)
-        throw(ErrorException("supervise already active"))
+        for p in processes
+            startup(p)
+        end
+        if wait
+            Base.wait(__ROOT__)
+        end
+        return __ROOT__
     else
         __ROOT__.inbox = Channel(INBOX_CAPACITY)
         __ROOT__.evhandler = handler
@@ -1332,13 +1338,13 @@ function supervise(wait::Bool=true)
     wait && return Base.wait(__ROOT__)
 end
 
-# 
+#
 #     wait(sv::Supervisor)
-# 
+#
 # Wait for supervisor `sv` termination.
-#     
+#
 # A supervisor terminates when all of its supervised tasks terminate.
-# 
+#
 function Base.wait(sv::Supervisor)
     wait(sv.task)
     try
