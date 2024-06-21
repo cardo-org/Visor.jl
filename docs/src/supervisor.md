@@ -31,7 +31,8 @@ supervisor(name::String, specs=Spec[];
            intensity=1,
            period=5,
            strategy=:one_for_one,
-           restart=:transient)
+           restart=:transient,
+           wait=true)
 ```
 
 It is possible to control the number of restarts of supervised tasks by the two options
@@ -66,17 +67,19 @@ function main(task)
     end
 end
 
-sv = supervisor("mysupervisor", [interruptable(tsk1), interruptable(tsk2)]);
-forever([interruptable(main), sv]);
+sv = supervisor("mysupervisor", [process(tsk1), process(tsk2)]);
+supervise([process(main), sv]);
 ```
 
 The `strategy` option defines the restart policy and it is one of:
+
 * `:one_for_one`
 * `:one_for_all`
 * `:rest_for_one`
 * `:one_terminate_all`
 
-The design of the restart strategies `:one_for_one`, `:one_for_all` and `:rest_for_one` follows Erlang behavoir, see [Erlang documentation](https://www.erlang.org/doc/design_principles/sup_princ.html#restart-strategy) for a comprehensive explanation.
+The design of the restart strategies `:one_for_one`, `:one_for_all` and `:rest_for_one` follows Erlang behavoir,
+see [Erlang documentation](https://www.erlang.org/doc/design_principles/sup_princ.html#restart-strategy) for a comprehensive explanation.
 
 The strategy `:one_terminate_all` terminate all supervised processes as soon as the first one terminate, either normally or by an exception.
 
@@ -84,3 +87,6 @@ Finally there can be two types of life span for supervisor: `:permanent` and `:t
 
 The `:transient` supervisor terminates when there are left no children to supervise, whereas the `:permanent`
 supervisor may outlives its supervised children.
+
+The `wait` option controls if `supervise` blocks or return control. In the latter case it is responsability of the caller to
+wait for supervision termination.

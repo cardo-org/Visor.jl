@@ -1333,7 +1333,6 @@ supervise(
 )
 
 function supervise(wait::Bool=true)
-    #@async wait_signal(__ROOT__)
     start(__ROOT__)
     wait && return Base.wait(__ROOT__)
 end
