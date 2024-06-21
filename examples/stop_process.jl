@@ -1,7 +1,7 @@
 #' # How to stop supervised tasks
 #'
 #' In Julia parlance a task is just a function that runs as a coroutine.
-#' 
+#'
 #' A task managed by [Visor](https://github.com/cardo-org/Visor) differs from a
 #' standard julia task because it is a function
 #' that requires as its first argument an handle representing the
@@ -9,7 +9,7 @@
 #'
 #' In the following examples the handle `self` it is not used to communicate
 #' with the task using the `inbox` channel
-#' but just to check if a shutdown request was delivered and in this case it stops the task.  
+#' but just to check if a shutdown request was delivered and in this case it stops the task.
 #'
 #' The task `fair_task` is a `Visor.process`: it is a cooperative task that
 #' checks itself for a shutdown request and acts accordingly.
@@ -22,7 +22,7 @@ function fair_task(self)
             println("[$(self.id)] cleanup and resources deallocation")
             break
         end
-        sleep(2)
+        sleep(0.5)
     end
     return println("[$(self.id)] DONE")
 end

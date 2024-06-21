@@ -50,13 +50,15 @@ using Visor
 
 function tsk1(task)
     sleep(1)
-    error("[$(task.id)]: critical failure")
+    return error("[$(task.id)]: critical failure")
 end
 
 function tsk2(task)
-    while true
+    count = 0
+    while count < 8
         println("[$(task.id)]: do something ...")
         sleep(0.5)
+        count += 1
     end
 end
 
@@ -88,5 +90,5 @@ Finally there can be two types of life span for supervisor: `:permanent` and `:t
 The `:transient` supervisor terminates when there are left no children to supervise, whereas the `:permanent`
 supervisor may outlives its supervised children.
 
-The `wait` option controls if `supervise` blocks or return control. In the latter case it is responsability of the caller to
-wait for supervision termination.
+The `wait` option controls if `supervise` blocks or return control. In the latter case the caller have
+to wait for supervision termination.
