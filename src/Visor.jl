@@ -1187,7 +1187,7 @@ Return true if message is a `Request`.
 """
 isrequest(message) = isa(message, Request)
 
-if Sys.islinux()
+if Sys.islinux() || Sys.isbsd()
     function handle_signal(signo)::Int
         if signo == 0 || signo == 2
             shutdown()
@@ -1212,7 +1212,7 @@ function wait_signal(sv)
             put!(sv.inbox, Shutdown())
         end
     catch
-        if Sys.islinux()
+        if Sys.islinux() || Sys.isbsd()
             handle_ptr = @cfunction(handle_signal, Int, (Int,))
             ccall(:signal, Int, (Int, Ptr{Cvoid}), 2, handle_ptr)
         elseif Sys.iswindows()
