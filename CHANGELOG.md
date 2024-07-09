@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.7.0
+
+- MacOS support [#7](https://github.com/cardo-org/Visor.jl/pull/7)
+
 ## 0.6.1 (2 May, 2024)
 
 - If already active supervise() add processes instead of throwing an exception.  
