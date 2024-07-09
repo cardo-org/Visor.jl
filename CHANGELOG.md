@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.7.0
+## 0.7.0 (9 July, 2024)
 
 - MacOS support [#7](https://github.com/cardo-org/Visor.jl/pull/7)
 
