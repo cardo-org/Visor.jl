@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Shutting down · Visor.jl</title><script data-outdated-warner src="../assets/warner.js"></script><link rel="canonical" href="https://cardo-org.github.io/Visor.jl/stop_process/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.045/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.24/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">Visor.jl</a></span></div><form class="docs-search" action="../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../process/">Process</a></li><li><a class="tocitem" href="../supervisor/">Supervisor</a></li><li><a class="tocitem" href="../messages/">Messages</a></li><li class="is-active"><a class="tocitem" href>Shutting down</a></li><li><a class="tocitem" href="../no_handler_available/">No exception handler available</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Shutting down</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Shutting down</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/cardo-org/Visor.jl/blob/main/docs/src/stop_process.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="How-to-stop-supervised-tasks"><a class="docs-heading-anchor" href="#How-to-stop-supervised-tasks">How to stop supervised tasks</a><a id="How-to-stop-supervised-tasks-1"></a><a class="docs-heading-anchor-permalink" href="#How-to-stop-supervised-tasks" title="Permalink"></a></h1><p>In Julia parlance a task is just a function that runs as a coroutine.</p><p>A task managed by <a href="https://github.com/cardo-org/Visor">Visor</a> differs from a standard julia task because it is a function that requires as its first argument an handle representing the supervised task.</p><p>In the following examples the handle <code>self</code> it is not used to communicate with the task using the <code>inbox</code> channel but just to check if a shutdown request was delivered and in this case it stops the task.</p><p>The task <code>fair_task</code> is a <code>Visor.process</code>: it is a cooperative task that checks itself for a shutdown request and acts accordingly.</p><pre><code class="language-julia hljs">using Visor
+
+function fair_task(self)
+    while true
+        println(&quot;[$(self.id)] checkpoint ...&quot;)
+        if isshutdown(self)
+            println(&quot;[$(self.id)] cleanup and resources deallocation&quot;)
+            break
+        end
+        sleep(0.5)
+    end
+    return println(&quot;[$(self.id)] DONE&quot;)
+end
+
+spec = [process(&quot;fair&quot;, fair_task)]
+println(&quot;starting supervised tasks&quot;)
+svisor = supervise(spec; wait=false)
+
+sleep(3)
+task = from(&quot;fair&quot;)
+
+println(&quot;[$(task.id)] requesting shutdown ...&quot;)
+shutdown(task)</code></pre><pre><code class="nohighlight hljs">starting supervised tasks
+[fair] checkpoint ...
+[fair] checkpoint ...
+[fair] checkpoint ...
+[fair] checkpoint ...
+[fair] checkpoint ...
+[fair] requesting shutdown ...
+[fair] checkpoint ...
+[fair] cleanup and resources deallocation
+[fair] DONE</code></pre><p>The following is an example of a <code>process</code> that does not check for a shutdown request. In this case it is forcibly interrupted by the supervisor after a configurable amount of time.</p><pre><code class="language-julia hljs">function uncooperative_task(self)
+    try
+        while true
+            println(&quot;[$(self.id)] working ...&quot;)
+            sleep(2)
+        end
+    catch e
+        println(&quot;[$(self.id)] interrupted by $e&quot;)
+    finally
+        println(&quot;[$(self.id)] DONE&quot;)
+    end
+end
+
+spec = [process(&quot;uncooperative&quot;, uncooperative_task; force_interrupt_after=5)]
+
+println(&quot;starting supervised tasks&quot;)
+svisor = supervise(spec; wait=false)
+
+sleep(3)
+task = from(&quot;uncooperative&quot;)
+
+println(&quot;[$(task.id)] requesting (ignored) shutdown ...&quot;)
+shutdown(task)</code></pre><pre><code class="nohighlight hljs">starting supervised tasks
+[uncooperative] working ...
+[uncooperative] working ...
+[uncooperative] requesting (ignored) shutdown ...
+[uncooperative] working ...
+[uncooperative] working ...
+[uncooperative] interrupted by Visor.ProcessInterrupt(&quot;uncooperative&quot;)
+[uncooperative] DONE</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../messages/">« Messages</a><a class="docs-footer-nextpage" href="../no_handler_available/">No exception handler available »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.25 on <span class="colophon-date" title="Friday 26 July 2024 16:15">Friday 26 July 2024</span>. Using Julia version 1.10.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
