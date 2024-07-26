@@ -35,6 +35,7 @@ export procs
 export receive
 export reply
 export setphase
+export setname
 export shutdown
 export startup
 export supervise
@@ -206,6 +207,28 @@ clear_hold(::Supervisor) = nothing
 
 hold(process::Process) = process.onhold = true
 hold(::Supervisor) = nothing
+
+"""
+    setname(process::Process, new_name::AbstractString)
+
+Change the process name
+"""
+function setname(process::Process, new_name::AbstractString)
+    sv = process.supervisor
+    if sv !== nothing
+        # maintain the order
+        child = OrderedDict{String,Supervised}()
+        for pname in keys(sv.processes)
+            if pname != process.id
+                child[pname] = sv.processes[pname]
+            else
+                child[new_name] = process
+            end
+        end
+        process.supervisor.processes = child
+    end
+    return process.id = new_name
+end
 
 Base.show(io::IO, process::Supervised) = print(io, process.id)
 
