@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.7.0 (26 July, 2024)
+## 0.7.1 (26 July, 2024)
 
 - New api setname(process, new_name) for changing process id
 
