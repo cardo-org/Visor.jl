@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.7.2 (15 October, 2024)
+
+- Event handler callback fro reporting process lifetime events revisited.
+
 ## 0.7.1 (26 July, 2024)
 
 - New api setname(process, new_name) for changing process id

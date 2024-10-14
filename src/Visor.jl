@@ -3,12 +3,12 @@ module Visor
 using DataStructures
 using UUIDs
 
-period = 5
+const DEFAULT_PERIOD = 5
 
 """
 Maximun numbers of restart in period seconds.
 """
-intensity = 1
+const DEFAULT_INTENSITY = 1
 
 const ROOT_SUPERVISOR = "root"
 const NODE_SEP = "."
@@ -94,8 +94,8 @@ mutable struct Supervisor <: Supervised
     function Supervisor(
         id,
         processes=OrderedDict{String,Supervised}(),
-        intensity=1,
-        period=5,
+        intensity=DEFAULT_INTENSITY,
+        period=DEFAULT_PERIOD,
         strategy=:one_for_one,
         terminateif=:empty,
         evhandler=nothing,
@@ -117,8 +117,8 @@ mutable struct Supervisor <: Supervised
         parent::Supervisor,
         id,
         processes=OrderedDict{String,Supervised}(),
-        intensity=1,
-        period=5,
+        intensity=DEFAULT_INTENSITY,
+        period=DEFAULT_PERIOD,
         strategy=:one_for_one,
         terminateif=:empty,
         evhandler=nothing,
@@ -275,7 +275,12 @@ function isprocstarted(name::String)
 end
 
 """
-    supervisor(id, processes; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty)::SupervisorSpec
+    supervisor(
+        id, processes;
+        intensity=DEFAULT_INTENSITY,
+        period=DEFAULT_PERIOD,
+        strategy=:one_for_one,
+        terminateif=:empty)::SupervisorSpec
 
 Declare a supervisor of one or more `processes`.
 
@@ -305,8 +310,8 @@ See [Supervisor](@ref) documentation for more details.
 function supervisor(
     id,
     processes::Vector{<:Supervised}=Supervised[];
-    intensity=1,
-    period=5,
+    intensity=DEFAULT_INTENSITY,
+    period=DEFAULT_PERIOD,
     strategy=:one_for_one,
     terminateif=:empty,
 )::Supervisor
@@ -329,7 +334,12 @@ function supervisor(
 end
 
 function supervisor(
-    id, proc::Supervised; intensity=1, period=5, strategy=:one_for_one, terminateif=:empty
+    id,
+    proc::Supervised;
+    intensity=DEFAULT_INTENSITY,
+    period=DEFAULT_PERIOD,
+    strategy=:one_for_one,
+    terminateif=:empty,
 )::Supervisor
     if !(terminateif in [:shutdown, :empty])
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
@@ -458,8 +468,8 @@ end
 "Trigger a supervisor resync"
 struct SupervisorResync end
 
-## include("supervisor.jl")
-# Returns the list of running nodes supervised by `supervisor` (processes and supervisors direct children).
+# Returns the list of running nodes supervised by `supervisor`:
+# processes and supervisors direct children.
 function running_nodes(supervisor)
     return collect(Iterators.filter(p -> !istaskdone(p.task), values(supervisor.processes)))
 end
@@ -657,7 +667,12 @@ end
 
 """
     add_processes(
-        svisor::Supervisor, processes; intensity, period, strategy, terminateif::Symbol=:empty
+        svisor::Supervisor,
+        processes;
+        intensity,
+        period,
+        strategy,
+        terminateif::Symbol=:empty
     )::Supervisor
 
 Setup hierarchy relationship between supervisor and supervised list of processes
@@ -680,7 +695,8 @@ function add_processes(
 end
 
 # Terminate all child processes in startup reverse order.
-# If invoked with a `failed_proc` argument it terminates the processes as far as `failed_proc`.
+# If invoked with a `failed_proc` argument it terminates the processes
+# as far as `failed_proc`.
 function supervisor_shutdown(
     supervisor, failed_proc::Union{Supervised,Nothing}=nothing, reset::Bool=false
 )
@@ -775,12 +791,6 @@ function unknown_message(sv, msg)
     @warn "[$sv]: received unknown message [$msg]"
 end
 
-function trace(supervisor, msg)
-    if isdefined(Visor, :trace_event)
-        trace_event(supervisor, msg)
-    end
-end
-
 function isalldone(supervisor)
     res = all(proc -> proc.status in [done, idle], values(supervisor.processes))
     return res
@@ -822,7 +832,7 @@ function manage(supervisor)
             elseif isa(msg, SupervisorResync)
                 # do nothing here, just a resync() is needed
             elseif isa(msg, ProcessFatal)
-                @async evhandler(msg.process, msg)
+                @async handle_event(supervisor, msg)
                 @debug "[$supervisor] manage process fatal: process done [$(msg.process)]"
                 msg.process.status = done
             elseif isa(msg, Supervised)
@@ -1247,8 +1257,8 @@ end
 
 """
     supervise(processes::Vector{<:Supervised};
-              intensity::Int=1,
-              period::Int=5,
+              intensity::Int=DEFAULT_INTENSITY,
+              period::Int=DEFAULT_PERIOD,
               strategy::Symbol=:one_for_one,
               terminateif::Symbol=:empty,
               handler::Union{Nothing, Function}=nothing,
@@ -1285,8 +1295,8 @@ when process tasks throws exception and when a process terminate because of a `P
 """
 function supervise(
     processes::Vector{<:Supervised};
-    intensity::Int=1,
-    period::Int=5,
+    intensity::Int=DEFAULT_INTENSITY,
+    period::Int=DEFAULT_PERIOD,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
     handler::Union{Nothing,Function}=nothing,
@@ -1311,7 +1321,9 @@ function supervise(
         return __ROOT__
     else
         __ROOT__.inbox = Channel(INBOX_CAPACITY)
-        __ROOT__.evhandler = handler
+        if handler !== nothing
+            __ROOT__.evhandler = handler
+        end
         sv = add_processes(
             __ROOT__,
             processes;
@@ -1328,8 +1340,8 @@ end
 
 """
     supervise(proc::Supervised;
-              intensity::Int=1,
-              period::Int=5,
+              intensity::Int=DEFAULT_INTENSITY,
+              period::Int=DEFAULT_PERIOD,
               strategy::Symbol=:one_for_one,
               terminateif::Symbol=:empty,
               handler::Union{Nothing, Function}=nothing,
@@ -1339,8 +1351,8 @@ The root supervisor start a supervised process defined by `proc`.
 """
 supervise(
     proc::Supervised;
-    intensity::Int=1,
-    period::Int=5,
+    intensity::Int=DEFAULT_INTENSITY,
+    period::Int=DEFAULT_PERIOD,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
     handler::Union{Nothing,Function}=nothing,
@@ -1382,26 +1394,19 @@ function wait_child(supervisor::Supervisor, process::Process)
     try
         wait(process.task)
         normal_return(supervisor, process)
-        trace(supervisor, ProcessReturn(process))
+        handle_event(supervisor, ProcessReturn(process))
     catch e
         taskerr = e.task.exception
         process.status = failed
         if isa(taskerr, ProcessInterrupt)
             @debug "[$supervisor]: process [$process] forcibly interrupted"
             exitby_forced_shutdown(supervisor, process)
-            trace(supervisor, ProcessInterrupted(process))
+            handle_event(supervisor, ProcessInterrupted(process))
         else
             @debug "[$process] exception: $taskerr"
-            evhandler(process, taskerr)
             @debug "[$supervisor]: applying restart policy for [$process] ($(Int.(floor.(process.startstamps))))"
             exitby_exception(supervisor, process)
-            trace(supervisor, ProcessInterrupted(process))
-
-            if isa(taskerr, Exception)
-                trace(supervisor, ProcessError(process, taskerr))
-            else
-                trace(supervisor, ProcessError(process, SystemError("process exception")))
-            end
+            handle_event(supervisor, ProcessError(process, taskerr))
         end
     finally
         if process.restart === :temporary
@@ -1419,16 +1424,23 @@ function wait_child(supervisor::Supervisor, process::Supervisor)
     return nothing
 end
 
-function evhandler(process, event)
-    if __ROOT__.evhandler !== nothing
-        __ROOT__.evhandler(process, event)
+function handle_event(process, event)
+    if isdefined(process, :supervisor)
+        sv = process.supervisor
+    else
+        # If process supervisor is not set trace at root level.
+        sv = __ROOT__
+    end
+
+    if sv.evhandler !== nothing
+        sv.evhandler(process, event)
     end
 end
 
 """
     setroot(;
         intensity::Int=1,
-        period::Int=5,
+        period::Int=DEFAULT_PERIOD,
         strategy::Symbol=:one_for_one,
         terminateif::Symbol=:empty,
         handler::Union{Nothing,Function}=nothing,
@@ -1437,8 +1449,8 @@ end
 Setup root supervisor settings.
 """
 setroot(;
-    intensity::Int=1,
-    period::Int=5,
+    intensity::Int=DEFAULT_INTENSITY,
+    period::Int=DEFAULT_PERIOD,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
     handler::Union{Nothing,Function}=nothing,
@@ -1454,7 +1466,7 @@ setroot(;
 """
     setsupervisor(sv::Supervisor;
         intensity::Int=1,
-        period::Int=5,
+        period::Int=DEFAULT_PERIOD,
         strategy::Symbol=:one_for_one,
         terminateif::Symbol=:empty,
         handler::Union{Nothing,Function}=nothing,
@@ -1464,8 +1476,8 @@ Setup supervisor settings.
 """
 function setsupervisor(
     sv::Supervisor;
-    intensity::Int=1,
-    period::Int=5,
+    intensity::Int=DEFAULT_INTENSITY,
+    period::Int=DEFAULT_PERIOD,
     strategy::Symbol=:one_for_one,
     terminateif::Symbol=:empty,
     handler::Union{Nothing,Function}=nothing,
@@ -1481,8 +1493,8 @@ end
 const __ROOT__::Supervisor = Supervisor(
     ROOT_SUPERVISOR,
     OrderedDict{String,Supervised}(),
-    intensity,
-    period,
+    DEFAULT_INTENSITY,
+    DEFAULT_PERIOD,
     :one_for_one,
     :empty,
 )
