@@ -679,14 +679,23 @@ Setup hierarchy relationship between supervisor and supervised list of processes
 and configure supervisor behavior.
 """
 function add_processes(
-    svisor::Supervisor, processes; intensity, period, strategy, terminateif::Symbol=:empty
+    svisor::Supervisor, processes; intensity, period, strategy, terminateif
 )::Supervisor
     @debug "[$svisor]: add_processes with strategy $strategy"
 
-    svisor.intensity = intensity
-    svisor.period = period
-    svisor.strategy = strategy
-    svisor.terminateif = terminateif
+    if intensity !== nothing
+        svisor.intensity = intensity
+    end
+    if period !== nothing
+        svisor.period = period
+    end
+    if strategy !== nothing
+        svisor.strategy = strategy
+    end
+
+    if terminateif !== nothing
+        svisor.terminateif = terminateif
+    end
 
     for proc in processes
         add_node(svisor, proc)
@@ -1295,19 +1304,21 @@ when process tasks throws exception and when a process terminate because of a `P
 """
 function supervise(
     processes::Vector{<:Supervised};
-    intensity::Int=DEFAULT_INTENSITY,
-    period::Int=DEFAULT_PERIOD,
-    strategy::Symbol=:one_for_one,
-    terminateif::Symbol=:empty,
+    intensity=nothing,
+    period=nothing,
+    strategy=nothing,
+    terminateif=nothing,
     handler::Union{Nothing,Function}=nothing,
     wait::Bool=true,
 )::Supervisor
-    if !(strategy in [:one_for_one, :rest_for_one, :one_for_all, :one_terminate_all])
+    if !(
+        strategy in [nothing, :one_for_one, :rest_for_one, :one_for_all, :one_terminate_all]
+    )
         error(
             "wrong strategy $strategy: must be one of :one_for_one, :rest_for_one, :one_for_all",
         )
     end
-    if !(terminateif in [:shutdown, :empty])
+    if !(terminateif in [nothing, :shutdown, :empty])
         error("wrong terminateif type $terminateif: must be one of :empty, :shutdown")
     end
 
