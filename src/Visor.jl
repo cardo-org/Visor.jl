@@ -22,7 +22,7 @@ const STOP_WAITING_AFTER = Inf
 export application
 export call
 export cast
-export from
+export from, from_name
 export getphase
 export ifrestart
 export hassupervised
@@ -1100,6 +1100,31 @@ function from_path(start_node::Supervised, path)
     end
     return nothing
 end
+
+"""
+    from_name(container::Supervised, name::AbstractString)
+
+Return the process identified by `name` that is supervised by `container` or
+nothing if such process does not exists.
+
+It may be useful in case the process name contains dots because it does not lookup the
+supervision hierarchy using the dot as separator between nodes.
+"""
+function from_name(container::Supervised, name::AbstractString)
+    if haskey(container.processes, name)
+        return container.processes[name]
+    else
+        return nothing
+    end
+end
+
+"""
+    from_name(name::AbstractString)
+
+Return the process supervised by the root supervisor that is identified by `name` or
+nothing if such process does not exists.
+"""
+from_name(name::AbstractString) = from_name(__ROOT__, name)
 
 """
     function receive(fn::Function, pd::Process)

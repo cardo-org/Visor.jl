@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.7.3 (17 November, 2024)
+
+- Added from_name() API method. It may be useful if the process name contains dots.
+
 ## 0.7.2 (15 October, 2024)
 
 - Event handler callback fro reporting process lifetime events revisited.
