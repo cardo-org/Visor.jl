@@ -87,7 +87,6 @@ mutable struct Supervisor <: Supervised
     strategy::Symbol
     terminateif::Symbol
     evhandler::Union{Nothing,Function}
-    restarts::Vector{Supervised}
     supervisor::Supervisor
     inbox::Channel
     task::Task
@@ -101,16 +100,7 @@ mutable struct Supervisor <: Supervised
         evhandler=nothing,
     )
         return new(
-            id,
-            idle,
-            :undef,
-            processes,
-            intensity,
-            period,
-            strategy,
-            terminateif,
-            evhandler,
-            [],
+            id, idle, :undef, processes, intensity, period, strategy, terminateif, evhandler
         )
     end
     function Supervisor(
@@ -133,7 +123,6 @@ mutable struct Supervisor <: Supervised
             strategy,
             terminateif,
             evhandler,
-            [],
             parent,
         )
     end
@@ -466,7 +455,11 @@ struct ProcessInterrupt <: Exception
 end
 
 "Trigger a supervisor resync"
-struct SupervisorResync end
+struct SupervisorResync
+    restarts::Vector{Supervised}
+end
+
+struct SupervisorShuttable end
 
 # Returns the list of running nodes supervised by `supervisor`:
 # processes and supervisors direct children.
@@ -553,14 +546,19 @@ function restart_policy(supervisor, process)
         for p in stopped
             delete!(supervisor.processes, p.id)
         end
-        put!(supervisor.inbox, ProcessFatal(process))
+        msg = ProcessFatal(process)
+        handle_event(supervisor, msg)
+        put!(supervisor.inbox, msg)
     else
         process.isrestart = true
         if !isnan(process.debounce_time)
             sleep(process.debounce_time)
         end
 
-        if process.status === idle
+        if supervisor.status === idle
+            # in the meantime supervisor shutted down, skip restart event
+            @debug "supervisor [$supervisor] terminated, skipping [$process] restart "
+        elseif process.status === idle
             # a shutdown was issued, terminate the restarts
             @debug "[$process]: honore the shutdown request"
             delete!(supervisor.processes, process.id)
@@ -571,12 +569,14 @@ function restart_policy(supervisor, process)
             # and then all child processes, including the terminated one, are restarted.
             @debug "[$supervisor] restart strategy: $(supervisor.strategy)"
             stopped = supervisor_shutdown(supervisor)
-            supervisor.restarts = stopped
+            put!(supervisor.inbox, SupervisorResync(stopped))
         elseif supervisor.strategy === :rest_for_one
             stopped = supervisor_shutdown(supervisor, process)
-            supervisor.restarts = stopped
+            put!(supervisor.inbox, SupervisorResync(stopped))
         end
     end
+
+    return nothing
 end
 
 function restart_processes(supervisor, procs)
@@ -591,7 +591,8 @@ function restart_processes(supervisor, procs)
             break
         end
     end
-    return supervisor.restarts = []
+
+    return nothing
 end
 
 """
@@ -739,15 +740,11 @@ function root_supervisor(process::Supervised)
 end
 
 function terminate_others(proc)
-    try
-        for (name, p) in collect(proc.supervisor.processes)
-            if p !== proc
-                p.status = idle
-                @async shutdown(p)
-            end
+    for (name, p) in collect(proc.supervisor.processes)
+        if p !== proc
+            p.status = idle
+            @async shutdown(p)
         end
-    catch e
-        @info e
     end
 end
 
@@ -757,7 +754,9 @@ function normal_return(supervisor::Supervisor, child::Process)
         if supervisor.strategy === :one_terminate_all
             terminate_others(child)
         elseif child.restart === :permanent
-            !child.onhold && restart_policy(supervisor, child)
+            if !child.onhold
+                restart_policy(supervisor, child)
+            end
         else
             @debug "[$supervisor] normal_return: [$child] done, onhold:$(child.onhold)"
             if !child.onhold
@@ -766,6 +765,8 @@ function normal_return(supervisor::Supervisor, child::Process)
             child.status = done
         end
     end
+
+    return nothing
 end
 
 function exitby_exception(supervisor::Supervisor, child::Process)
@@ -778,6 +779,8 @@ function exitby_exception(supervisor::Supervisor, child::Process)
             @debug "[$supervisor] exitby_exception: delete [$child]"
         end
     end
+
+    return nothing
 end
 
 function exitby_forced_shutdown(supervisor::Supervisor, child::Process)
@@ -812,21 +815,25 @@ Restart processes previously stopped by supervisor policies.
 
 Return true if all supervised processes terminated.
 """
-function resync(supervisor)
-    if !isempty(supervisor.restarts)
-        @debug "[$supervisor] to be restarted: $(format4print(supervisor.restarts))"
+function resync(supervisor, restarts::Vector{Supervised})
+    if !isempty(restarts)
+        @debug "[$supervisor] to be restarted: $(format4print(restarts))"
         # check all required processes are terminated
-        if all(proc -> proc.status !== running, supervisor.restarts)
+        if all(proc -> proc.status !== running, restarts)
             @debug "[$supervisor] restarting processes"
-            restart_processes(supervisor, supervisor.restarts)
+            restart_processes(supervisor, restarts)
         end
     end
+    return nothing
+end
 
+function shuttable(supervisor)
     @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
     if supervisor.terminateif === :empty && isalldone(supervisor)
-        return true
+        put!(supervisor.inbox, SupervisorShuttable())
     end
-    return false
+
+    return nothing
 end
 
 # Supervisor main loop.
@@ -839,9 +846,10 @@ function manage(supervisor)
                 supervisor_shutdown(supervisor, nothing, msg.reset)
                 break
             elseif isa(msg, SupervisorResync)
-                # do nothing here, just a resync() is needed
+                resync(supervisor, msg.restarts)
+            elseif isa(msg, SupervisorShuttable)
+                break
             elseif isa(msg, ProcessFatal)
-                @async handle_event(supervisor, msg)
                 @debug "[$supervisor] manage process fatal: process done [$(msg.process)]"
                 msg.process.status = done
             elseif isa(msg, Supervised)
@@ -865,10 +873,6 @@ function manage(supervisor)
                 end
             else
                 unknown_message(supervisor, msg)
-            end
-
-            if resync(supervisor)
-                break
             end
         end
     catch e
@@ -1449,14 +1453,14 @@ function wait_child(supervisor::Supervisor, process::Process)
             @debug "removing temporary process $process"
             delete!(supervisor.processes, process.id)
         end
-        put!(supervisor.inbox, SupervisorResync())
+        shuttable(supervisor)
     end
 end
 
 function wait_child(supervisor::Supervisor, process::Supervisor)
     wait(process.task)
     normal_return(supervisor, process)
-    put!(supervisor.inbox, SupervisorResync())
+    shuttable(supervisor)
     return nothing
 end
 

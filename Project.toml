@@ -1,7 +1,7 @@
 name = "Visor"
 uuid = "cf786855-3531-4b86-ba6e-3e33dce7dcdb"
 authors = ["Attilio Donà"]
-version = "0.7.3"
+version = "0.7.4"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"

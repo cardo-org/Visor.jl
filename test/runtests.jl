@@ -14,6 +14,15 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
         @time @safetestset "process" begin
             include("test_process.jl")
         end
+        @time @safetestset "setname" begin
+            include("test_setname.jl")
+        end
+        @time @safetestset "phase" begin
+            include("test_phase.jl")
+        end
+        @time @safetestset "one_terminate_all" begin
+            include("test_one_terminate_all.jl")
+        end
         @time @safetestset "supervisor" begin
             include("test_supervisor.jl")
         end

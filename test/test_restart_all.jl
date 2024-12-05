@@ -2,18 +2,18 @@ using Visor
 using Test
 
 #
-# 
+#
 #       root
 #        /
-#       /  
-#      s1   
+#       /
+#      s1
 #     /  \
 #   s11  w3
 #   /  \
 #  w1  w2
 #
-#  startup order: w1, w2, w3  
-#  check :one_for_all restart strategy  
+#  startup order: w1, w2, w3
+#  check :one_for_all restart strategy
 #
 
 #ENV["JULIA_DEBUG"] = Visor
@@ -55,7 +55,7 @@ s1_specs = [
     process("w3", myworker; force_interrupt_after=1),
 ]
 
-specs = [supervisor("s1", s1_specs; strategy=:one_for_all)]
+specs = [supervisor("s1", s1_specs; strategy=:one_for_all, terminateif=:shutdown)]
 
 handle = Visor.supervise(specs; wait=false)
 Timer((tim) -> shutdown(handle), 10)

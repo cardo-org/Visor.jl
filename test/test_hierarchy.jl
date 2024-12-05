@@ -62,7 +62,7 @@ node = Visor.from_path(sv, ".sv1")
 @test Visor.from_path(from("sv2.w3"), "w3") === from("sv2.w3")
 
 t1 = Timer((tim) -> shutdown_request(handle, "sv1.sv1-3.w1"), 2)
-t2 = Timer((tim) -> getrunning(handle), 3)
+t2 = Timer((tim) -> getrunning(handle), 3.5)
 
 n = Visor.nproc(sv)
 @test n == 3
@@ -72,5 +72,10 @@ wait(handle)
 for (tst, result) in ttrace
     @test result
 end
+
+process_tree = procs()
+@test issetequal(keys(process_tree["root"]), ["sv1", "sv2"])
+@test issetequal(keys(process_tree["root"]["sv1"]), ["sv1-3"])
+@test isempty(process_tree["root"]["sv2"])
 
 shutdown()
