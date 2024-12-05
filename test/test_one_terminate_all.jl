@@ -6,9 +6,7 @@ terminated = true
 function terminate(::Timer)
     global terminated
     terminated = false
-    @error "[tast_one_terminate_all] failed to stop all processes"
     shutdown()
-
     return nothing
 end
 
@@ -27,14 +25,11 @@ end
 Timer(terminate, 5)
 
 try
-    #spec = [process(task_all), process(task_one), process(task_all)]
     spec = [process("p1", task_all), process("p2", task_one), process("p3", task_all)]
-
     sv = supervise(spec; strategy=:one_terminate_all, terminateif=:empty)
 
     Visor.dump()
     info = procs()
-    @info "processes: $info"
 
     @test terminated
 finally
