@@ -1,7 +1,5 @@
 using Visor
 
-#ENV["JULIA_DEBUG"] = Visor
-
 function printer(pd, device)
     println("(re)starting printer driver")
     receive(pd) do msg

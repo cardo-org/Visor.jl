@@ -10,72 +10,86 @@ include("utils.jl")
 #   w1  w2 127.0.0.1
 #
 
-sv2_specs = [process("w3", worker; namedargs=(steps=10, check_interrupt_every=2))]
-
-sv3_specs = [
-    process("w1", worker; namedargs=(steps=5, check_interrupt_every=1)),
-    process("w2", worker; namedargs=(steps=10, check_interrupt_every=3)),
-    process("127.0.0.1", worker; namedargs=(steps=10, check_interrupt_every=3)),
-]
-
-sv1_specs = [supervisor("sv1-3", sv3_specs; intensity=1)]
-
-specs = [
-    supervisor("sv1", sv1_specs)
-    supervisor("sv2", sv2_specs)
-]
-
 function getrunning(handle)
     sv = Visor.from_supervisor(handle, "sv1.sv1-3")
     nprocs = length(Visor.running_nodes(sv))
-    @info "supervisor [$(sv.id)] running processes: $nprocs"
+    @info "[test_hierarchy] supervisor [$(sv.id)] running processes: $nprocs"
     return ttrace["getrunning"] = nprocs == 2
 end
 
 function shutdown_request(start_node, target_id::String)
     try
-        @info "broadcast shutdown for [$target_id]"
+        @info "[test_hierarchy] broadcast shutdown for [$target_id]"
         cast(target_id, Visor.Shutdown())
     catch e
         @error "shutdown_request: $e"
     end
 end
 
-handle = supervise(specs; wait=false)
+@info "[test_hierarchy] start"
+try
+    sv2_specs = [process("w3", worker; namedargs=(steps=10, check_interrupt_every=2))]
 
-sv = from("sv1.sv1-3")
+    sv3_specs = [
+        process("w1", worker; namedargs=(steps=5, check_interrupt_every=1)),
+        process("w2", worker; namedargs=(steps=6, check_interrupt_every=2)),
+        process("127.0.0.1", worker; namedargs=(steps=6, check_interrupt_every=2)),
+    ]
 
-proc = from_name(sv, "127.0.0.1")
-@test proc.id == "127.0.0.1"
+    sv1_specs = [supervisor("sv1-3", sv3_specs; intensity=1)]
 
-proc = from_name("127.0.0.1")
-@test proc === nothing
+    specs = [
+        supervisor("sv1", sv1_specs)
+        supervisor("sv2", sv2_specs)
+    ]
 
-# test internal method from_path
-# from_path is not thread safe, use from instead
-node = Visor.from_path(sv, ".")
-@test node === handle
+    @test !isprocstarted("sv1.sv1-3.w1")
+    handle = supervise(specs; wait=false)
+    sleep(0.1)
+    @test isprocstarted("sv1.sv1-3.w1")
 
-node = Visor.from_path(sv, ".sv1")
-@test node === from("sv1")
+    sv = from("sv1.sv1-3")
 
-@test Visor.from_path(from("sv2.w3"), "w3") === from("sv2.w3")
+    proc = from_name(sv, "127.0.0.1")
+    @test proc.id == "127.0.0.1"
 
-t1 = Timer((tim) -> shutdown_request(handle, "sv1.sv1-3.w1"), 2)
-t2 = Timer((tim) -> getrunning(handle), 3.5)
+    proc = from_name("127.0.0.1")
+    @test proc === nothing
 
-n = Visor.nproc(sv)
-@test n == 3
+    # test internal method from_path
+    # from_path is not thread safe, use from instead
+    node = Visor.from_path(sv, ".")
+    @test node === handle
 
-wait(handle)
+    node = Visor.from_path(sv, ".sv1")
 
-for (tst, result) in ttrace
-    @test result
+    @test hassupervised("sv1")
+    @test !hassupervised("unknown")
+
+    @test node === from("sv1")
+
+    @test Visor.from_path(from("sv2.w3"), "w3") === from("sv2.w3")
+
+    t1 = Timer((tim) -> shutdown_request(handle, "sv1.sv1-3.w1"), 0.2)
+    t2 = Timer((tim) -> getrunning(handle), 0.5)
+
+    n = Visor.nproc(sv)
+    @test n == 3
+
+    wait(handle)
+
+    for (tst, result) in ttrace
+        @test result
+    end
+
+    process_tree = procs()
+    @test issetequal(keys(process_tree["root"]), ["sv1", "sv2"])
+    @test issetequal(keys(process_tree["root"]["sv1"]), ["sv1-3"])
+    @test isempty(process_tree["root"]["sv2"])
+catch e
+    @error "[test_hierarchy] error: $e"
+    @test false
+finally
+    shutdown()
 end
-
-process_tree = procs()
-@test issetequal(keys(process_tree["root"]), ["sv1", "sv2"])
-@test issetequal(keys(process_tree["root"]["sv1"]), ["sv1-3"])
-@test isempty(process_tree["root"]["sv2"])
-
-shutdown()
+@info "[test_hierarchy] stop"

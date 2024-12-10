@@ -1,6 +1,7 @@
 module Visor
 
 using DataStructures
+using PrecompileTools
 using UUIDs
 
 const DEFAULT_PERIOD = 5
@@ -312,7 +313,7 @@ function supervisor(
         error("immediate shutdown of supervisor [$id] with no processes")
     end
 
-    return Supervisor(
+    sv = Supervisor(
         id,
         OrderedDict{String,Supervised}(map(proc -> proc.id => proc, processes)),
         intensity,
@@ -320,6 +321,12 @@ function supervisor(
         strategy,
         terminateif,
     )
+
+    map(processes) do p
+        p.supervisor = sv
+    end
+
+    return sv
 end
 
 function supervisor(
@@ -334,9 +341,11 @@ function supervisor(
         error("wrong shutdown value $shutdown: must be one of :empty, :shutdown")
     end
 
-    return Supervisor(
+    sv = Supervisor(
         id, OrderedDict(proc.id => proc), intensity, period, strategy, terminateif
     )
+    proc.supervisor = sv
+    return sv
 end
 
 """
@@ -492,8 +501,6 @@ function start(proc::Process)
     return proc.task
 end
 
-start() = start(__ROOT__)
-
 function start(sv::Supervisor)
     if isrunning(sv)
         # this supervisor is running but perhaps the children need to be started
@@ -544,30 +551,18 @@ function restart_policy(supervisor, process)
         end
 
         for p in stopped
-            delete!(supervisor.processes, p.id)
+            remove_node(supervisor, p)
         end
         msg = ProcessFatal(process)
         handle_event(supervisor, msg)
         put!(supervisor.inbox, msg)
     else
         process.isrestart = true
-        if !isnan(process.debounce_time)
-            sleep(process.debounce_time)
-        end
-
-        if supervisor.status === idle
-            # in the meantime supervisor shutted down, skip restart event
-            @debug "supervisor [$supervisor] terminated, skipping [$process] restart "
-        elseif process.status === idle
-            # a shutdown was issued, terminate the restarts
-            @debug "[$process]: honore the shutdown request"
-            delete!(supervisor.processes, process.id)
-        elseif supervisor.strategy === :one_for_one
-            process.task = start(process)
+        if supervisor.strategy === :one_for_one
+            schedule_start(process, supervisor)
         elseif supervisor.strategy === :one_for_all
             # If a child process terminates, all other child processes are terminated,
             # and then all child processes, including the terminated one, are restarted.
-            @debug "[$supervisor] restart strategy: $(supervisor.strategy)"
             stopped = supervisor_shutdown(supervisor)
             put!(supervisor.inbox, SupervisorResync(stopped))
         elseif supervisor.strategy === :rest_for_one
@@ -579,13 +574,27 @@ function restart_policy(supervisor, process)
     return nothing
 end
 
+function schedule_start(process::Process, supervisor)
+    if !isnan(process.debounce_time)
+        sleep(process.debounce_time)
+    end
+    if supervisor.status === idle
+        @debug "supervisor [$supervisor] terminated, skipping [$process] restart "
+    else
+        process.task = start(process)
+    end
+
+    return nothing
+end
+
+function schedule_start(process::Supervisor, supervisor)
+    process.task = start(process)
+    return nothing
+end
+
 function restart_processes(supervisor, procs)
     for proc in procs
-        start(proc)
-        if isdefined(proc, :debounce_time) && !isnan(proc.debounce_time)
-            @debug "[$proc] waiting for debounce_time $(proc.debounce_time) secs"
-            sleep(proc.debounce_time)
-        end
+        schedule_start(proc, supervisor)
         if istaskfailed(proc.task)
             @debug "[$proc] task failed"
             break
@@ -640,18 +649,20 @@ end
 Add supervised `proc` to the children's collection of the controlling `supervisor`.
 """
 function add_node(supervisor::Supervisor, proc::Supervised)
-    try
-        @debug "[$supervisor] starting proc: [$proc]"
-        if isa(proc, Supervisor)
-            add_supervisor(supervisor, proc)
-        else
-            proc.supervisor = supervisor
-            supervisor.processes[proc.id] = proc
-        end
-        return proc
-    catch e
-        @error "[$supervisor] starting proc [$proc]: $e"
+    @debug "[$supervisor] starting proc: [$proc]"
+    if isa(proc, Supervisor)
+        add_supervisor(supervisor, proc)
+    else
+        proc.supervisor = supervisor
+        supervisor.processes[proc.id] = proc
     end
+    return proc
+end
+
+function remove_node(supervisor::Supervisor, proc::Supervised)
+    @debug "[$supervisor] removing node: [$proc]"
+    delete!(supervisor.processes, proc.id)
+    return proc
 end
 
 function add_supervisor(parent::Supervisor, svisor::Supervisor)::Supervisor
@@ -660,9 +671,6 @@ function add_supervisor(parent::Supervisor, svisor::Supervisor)::Supervisor
     parent.processes[svisor.id] = svisor
     svisor.supervisor = parent
 
-    for proc in values(svisor.processes)
-        add_node(svisor, proc)
-    end
     return svisor
 end
 
@@ -720,12 +728,14 @@ function supervisor_shutdown(
             @debug "[$p] failed_proc reached, stopping reverse shutdown"
             break
         end
-        if istaskdone(p.task)
-            @debug "[$p] skipping shutdown: task already done"
-        else
-            # shutdown is sequential because in case a node refuses
-            # to shutdown remaining nodes aren't shut down.
-            shutdown(p, reset)
+        if isdefined(p, :task)
+            if istaskdone(p.task)
+                @debug "[$p] skipping shutdown: task already done"
+            else
+                # shutdown is sequential because in case a node refuses
+                # to shutdown remaining nodes aren't shut down.
+                shutdown(p, reset)
+            end
         end
     end
     return reverse(stopped_procs)
@@ -760,7 +770,7 @@ function normal_return(supervisor::Supervisor, child::Process)
         else
             @debug "[$supervisor] normal_return: [$child] done, onhold:$(child.onhold)"
             if !child.onhold
-                delete!(supervisor.processes, child.id)
+                remove_node(supervisor, child)
             end
             child.status = done
         end
@@ -794,8 +804,6 @@ function normal_return(supervisor::Supervisor, child::Supervisor)
     if istaskdone(child.task)
         @debug "[$supervisor] normal_return: supervisor [$child] done"
         child.status = done
-    else
-        @debug "[$child] spourious return signal: task was restarted"
     end
 end
 
@@ -877,17 +885,16 @@ function manage(supervisor)
         end
     catch e
         @error "[$supervisor]: error: $e"
-        showerror(stdout, e, catch_backtrace())
     finally
         @debug "[$supervisor] terminating"
-        while isready(supervisor.inbox)
-            msg = take!(supervisor.inbox)
-            if isrequest(msg)
-                put!(msg.inbox, ErrorException("[$(msg.request)]: supervisor shut down"))
-            else
-                @debug "[$supervisor]: skipped msg: $msg"
-            end
-        end
+        #        while isready(supervisor.inbox)
+        #            msg = take!(supervisor.inbox)
+        #            if isrequest(msg)
+        #                put!(msg.inbox, ErrorException("[$(msg.request)]: supervisor shut down"))
+        #            else
+        #                @debug "[$supervisor]: skipped msg: $msg"
+        #            end
+        #        end
         close(supervisor.inbox)
         supervisor.status = idle
     end
@@ -973,13 +980,13 @@ end
 # Stops all managed children processes and terminate supervisor `process`.
 function shutdown(sv::Supervisor, reset::Bool=true)
     @debug "[$sv] supervisor: shutdown request (reset=$reset)"
+    sv.status = idle
     if isdefined(sv, :task) && !istaskdone(sv.task)
         if isopen(sv.inbox)
             put!(sv.inbox, Shutdown(; reset=reset))
             close(sv.inbox)
         end
         wait(sv.task)
-        sv.status = idle
     end
     reset && empty!(sv.processes)
     return nothing
@@ -1017,13 +1024,14 @@ Returns `true` if process has a shutdown command in its inbox.
 As a side effect remove messages from process inbox until a `shutdown` request is found.
 """
 function isshutdown(process::Supervised)
+    sts = false
     while isready(process.inbox)
         msg = take!(process.inbox)
         if isshutdown(msg)
-            return true
+            sts = true
         end
     end
-    return false
+    return sts
 end
 
 function wait_response(resp_cond, ch)
@@ -1041,12 +1049,7 @@ end
 Determine whether the supervised identified by `name` exists.
 """
 function hassupervised(name::String)
-    try
-        from(name)
-        return true
-    catch
-        return false
-    end
+    return from(name) !== nothing
 end
 
 #     from_supervisor(start_node::Supervisor, name::String)::Supervised
@@ -1451,7 +1454,7 @@ function wait_child(supervisor::Supervisor, process::Process)
     finally
         if process.restart === :temporary
             @debug "removing temporary process $process"
-            delete!(supervisor.processes, process.id)
+            remove_node(supervisor, process)
         end
         shuttable(supervisor)
     end
@@ -1538,5 +1541,11 @@ const __ROOT__::Supervisor = Supervisor(
     :one_for_one,
     :empty,
 )
+
+@setup_workload begin
+    @compile_workload begin
+        include("precompile.jl")
+    end
+end
 
 end

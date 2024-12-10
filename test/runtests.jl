@@ -2,17 +2,18 @@ using Visor
 using SafeTestsets
 using Test
 
-include("logger.jl")
-
 const GROUP = get(ENV, "GROUP", "all")
-
-DEBUG = get(ENV, "DEBUG", "0")
-logging(; debug=DEBUG == "0" ? [] : [Visor])
 
 @testset "Visor.jl" begin
     if GROUP == "all" || GROUP == "unit"
         @time @safetestset "process" begin
             include("test_process.jl")
+        end
+        @time @safetestset "receive" begin
+            include("test_receive.jl")
+        end
+        @time @safetestset "startchain" begin
+            include("test_startchain.jl")
         end
         @time @safetestset "setname" begin
             include("test_setname.jl")
@@ -22,6 +23,9 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
         end
         @time @safetestset "one_terminate_all" begin
             include("test_one_terminate_all.jl")
+        end
+        @time @safetestset "supervise" begin
+            include("test_supervise.jl")
         end
         @time @safetestset "supervisor" begin
             include("test_supervisor.jl")
@@ -68,8 +72,19 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
         @time @safetestset "combo" begin
             include("test_combo.jl")
         end
-        @time @safetestset "antipattern" begin
-            include("test_antipattern.jl")
+    end
+    if GROUP == "all" || GROUP == "shutdown"
+        @time @safetestset "shutdown" begin
+            include("test_shutdown.jl")
+        end
+        @time @safetestset "ignore_processinterrupt" begin
+            include("test_ignore_processinterrupt.jl")
+        end
+        @time @safetestset "isshutdown" begin
+            include("test_isshutdown.jl")
+        end
+        @time @safetestset "restart_honore_shutdown" begin
+            include("test_restart_honore_shutdown.jl")
         end
     end
     if GROUP == "all" || GROUP == "handler"
@@ -79,4 +94,4 @@ logging(; debug=DEBUG == "0" ? [] : [Visor])
     end
 end
 
-@info "expected tests: 49"
+@info "expected tests: 76"

@@ -1,7 +1,7 @@
-using Visor
+include("./utils.jl")
 
 #
-# 
+#
 #       root
 #        /\
 #       /  \
@@ -11,10 +11,8 @@ using Visor
 #   /  \
 #  w1  w2
 #
-#  w2 is a task that fails after 3 seconds   
+#  w2 is a task that fails after 3 seconds
 #
-
-#ENV["JULIA_DEBUG"] = Visor
 
 function myworker(self)
     for msg in self.inbox

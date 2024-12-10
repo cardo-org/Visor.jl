@@ -37,11 +37,23 @@ function run()
     for (tsk, restart, expected) in eachrow(cases)
         @info "testing tsk=$tsk, restart=$restart, expected to restart=$expected"
         restarted = false
-        timer = Timer(_tmr->shutdown(), 2)
-        supervise(process(tsk; restart=restart))
+
+        p = process(tsk; restart=restart)
+        timer = Timer(_tmr -> shutdown(p), 0.1)
+        supervise(p)
+
         @test restarted === expected
         close(timer)
     end
 end
 
-run()
+@info "[test_process] start"
+try
+    run()
+catch e
+    @error "[test_process] error: $e"
+    @test false
+finally
+    shutdown()
+end
+@info "[test_process] stop"

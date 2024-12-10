@@ -40,15 +40,22 @@ workerspecs = [
 
 specs = [supervisor("boss", workerspecs; strategy=:one_for_all)]
 
-@info "starting ..."
 sv = Visor.supervise(specs; wait=false)
 
-sleep(2)
-@info "terminating p2"
-terminate_p2(sv)
+@info "[test_one_for_all] start"
+try
+    sleep(1)
+    @info "terminating p2"
+    terminate_p2(sv)
 
-sleep(4)
-@info "terminating all"
-shutdown(sv)
+    sleep(0.5)
+    @info "terminating all"
+catch e
+    @error "[test_one_for_all] error: $e"
+    @test false
+finally
+    shutdown(sv)
+end
 
 @test EXPECTED_RESTARTS === restart_count
+@info "[test_one_for_all] stop"

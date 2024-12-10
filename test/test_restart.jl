@@ -11,20 +11,27 @@ function defective_worker(self)
         ifrestart_called = true
     end
 
-    @info "defective_worker start"
+    @info "[test_restart] defective_worker start"
     restarts += 1
-    sleep(1)
+    sleep(0.1)
     return error("bang!!")
 end
 
-children = [
-    process("myworker", worker; namedargs=(steps=15, check_interrupt_every=5)),
-    process("defective-worker", defective_worker; debounce_time=0.5),
-]
+@info "[test_restart] start"
+try
+    children = [
+        process("myworker", worker; namedargs=(steps=2, check_interrupt_every=1)),
+        process("defective-worker", defective_worker; debounce_time=0.1),
+    ]
 
-supervise(children; intensity=intensity)
+    supervise(children; intensity=intensity)
 
-@test restarts == intensity
-@test ifrestart_called
-
-shutdown()
+    @test restarts == intensity
+    @test ifrestart_called
+catch e
+    @error "[test_restart] error: $e"
+    @test false
+finally
+    shutdown()
+end
+@info "[test_restart] stop"

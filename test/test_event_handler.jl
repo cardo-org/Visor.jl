@@ -26,9 +26,8 @@ function exception_and_restart_process(pd)
 end
 
 function normal_return()
-    Visor.setroot(; handler=handler)
     p = process(normal_return_process)
-    supervise(p)
+    supervise(p; handler=handler)
     yield()
     @test haskey(ttrace, Visor.ProcessReturn(p))
     return nothing
@@ -54,9 +53,12 @@ function exception_and_restart()
     return nothing
 end
 
-Timer((_timer) -> shutdown(), 2)
+@info "[test_event_handler] start"
+
+Timer((_timer) -> shutdown(), 0.1)
 normal_return()
 
 exception()
 
 exception_and_restart()
+@info "[test_event_handler] stop"

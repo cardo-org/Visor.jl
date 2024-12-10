@@ -1,16 +1,13 @@
-using Visor
-using Test
+include("./utils.jl")
 
 #
-# 
+#
 #     root
 #      /
 #     sv
 #    /  \
 #  good  bad
 #
-
-ENV["JULIA_DEBUG"] = Visor
 
 restarts = 0
 

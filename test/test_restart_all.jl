@@ -1,5 +1,4 @@
-using Visor
-using Test
+include("./utils.jl")
 
 #
 #
@@ -16,50 +15,56 @@ using Test
 #  check :one_for_all restart strategy
 #
 
-#ENV["JULIA_DEBUG"] = Visor
-
 starts = 0
 
 stopped = []
+
+tlock = ReentrantLock()
 
 function myworker(self)
     global starts
 
     @info "[$self]: starting"
-    starts += 1
+    lock(tlock) do
+        starts += 1
+    end
+
     if self.id === "w3"
-        sleep(2)
+        sleep(0.1)
         if starts < 4
-            @info "[$self]: THROW EXCEPTION"
+            @info "[$self]: throwing bang exception"
             error("bang")
         end
     else
-        sleep(5)
+        sleep(3)
     end
-    @info "[$self]: terminate"
-    #    for msg in self.inbox
-    #        @debug "[$(self.id)] recv: $msg"
-    #        if isshutdown(msg)
-    #            push!(stopped, self.id)
-    #            break
-    #        end
-    #    end
+    @info "[test_restart_all][$self]: terminate"
 end
 
-s11_specs = [
-    process("w1", myworker; thread=true), process("w2", myworker; force_interrupt_after=1)
-]
+@info "[test_restart_all] start"
+try
+    s11_specs = [
+        process("w1", myworker; thread=true, force_interrupt_after=0.01),
+        process("w2", myworker; force_interrupt_after=0.01),
+    ]
 
-s1_specs = [
-    supervisor("s11", s11_specs; intensity=1, terminateif=:shutdown),
-    process("w3", myworker; force_interrupt_after=1),
-]
+    s1_specs = [
+        supervisor("s11", s11_specs; intensity=1, terminateif=:shutdown),
+        process("w3", myworker; force_interrupt_after=0.01),
+    ]
 
-specs = [supervisor("s1", s1_specs; strategy=:one_for_all, terminateif=:shutdown)]
+    specs = [supervisor("s1", s1_specs; strategy=:one_for_all, terminateif=:shutdown)]
 
-handle = Visor.supervise(specs; wait=false)
-Timer((tim) -> shutdown(handle), 10)
+    handle = Visor.supervise(specs; wait=false)
+    Timer((tim) -> shutdown(handle), 1)
 
-@test wait(handle) === nothing
+    @test wait(handle) === nothing
+catch e
+    @error "[test_restart_all] error: $e"
+    @test false
+finally
+    shutdown()
+end
 
 @test starts === 6
+@info "[test_restart_all] stop"

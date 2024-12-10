@@ -1,7 +1,7 @@
 include("utils.jl")
 
-NAME = "George"
-DYN_NAME = "Mildred"
+const NAME = "George"
+const DYN_NAME = "Mildred"
 
 function server1(self)
     for msg in self.inbox
@@ -30,31 +30,37 @@ function sv1_process(pd)
     return sleep(1)
 end
 
-foo_specs = [process("process-1", server1)]
+@info "[test_dynamic] start"
+try
+    foo_specs = [process("process-1", server1)]
 
-specs = [supervisor("foo", foo_specs)]
+    specs = [supervisor("foo", foo_specs)]
 
-sv = supervise(specs; wait=false)
+    sv = supervise(specs; wait=false)
 
-name = call("foo.process-1", :get_name)
-@test name === NAME
+    name = call("foo.process-1", :get_name)
+    @test name === NAME
 
-dyn_proc = startup(process("process-2", server2))
+    dyn_proc = startup(process("process-2", server2))
 
-prc = from("process-2")
-@info "TEST PRC: $prc"
+    prc = from("process-2")
 
-name = call(prc, :get_name)
-@test name === DYN_NAME
+    name = call(prc, :get_name)
+    @test name === DYN_NAME
 
-p1 = startup(process("process-3", server2))
-p2 = startup(process("process-3:$(Visor.uid())", server2))
-@test length(p2.id) > length(p1.id)
+    p1 = startup(process("process-3", server2))
+    p2 = startup(process("process-3:$(Visor.uid())", server2))
+    @test length(p2.id) > length(p1.id)
 
-# add a composite node
-prc = startup(supervisor("sv-1", process(sv1_process)))
-@test from("sv-1.sv1_process") === prc.processes["sv1_process"]
+    # add a composite node
+    prc = startup(supervisor("sv-1", process(sv1_process)))
+    @test from("sv-1.sv1_process") === prc.processes["sv1_process"]
 
-Visor.procs(sv)
-sleep(2)
-shutdown(sv)
+    Visor.procs(sv)
+catch e
+    @error "[test_dynamic] error: $e"
+    @test false
+finally
+    shutdown()
+end
+@info "[test_dynamic] stop"

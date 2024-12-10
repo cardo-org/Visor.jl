@@ -1,46 +1,51 @@
-using Visor
-using Test
+include("./utils.jl")
 
-ENV["JULIA_DEBUG"] = Visor
 count = 0
 
 function ok(pd)
     global count
     count += 1
 
-    @info "starting [$pd]"
-    sleep(3)
-    @info "[$pd] ping"
+    @info "[test_combo] starting [$pd]"
+    sleep(0.1)
+    @info "[test_combo][$pd] ping"
 end
 
 function err(pd)
     global count
 
-    @info "starting [$pd]"
+    @info "[test_combo] starting [$pd]"
     count += 1
     if count === 2
         error("bang!")
     end
-    return sleep(2)
+    return sleep(0.5)
 end
 
-specs = [supervisor("s1", [supervisor("s2", [process(ok)])]), process(err)]
+@info "[test_combo] start"
+try
+    specs = [supervisor("s1", [supervisor("s2", [process(ok)])]), process(err)]
 
-sv = supervise(specs; intensity=5, strategy=:one_for_all, wait=false)
+    sv = supervise(specs; intensity=5, strategy=:one_for_all, wait=false)
 
-tmr = Timer((tim) -> begin
-    global terminated
-    shutdown(sv)
-    terminated = false
-end, 8)
+    tmr = Timer((tim) -> begin
+        global terminated
+        shutdown(sv)
+        terminated = false
+    end, 8)
 
-terminated = true
+    terminated = true
 
-sleep(1)
+    wait(sv)
+    sleep(0.1)
+    @test terminated === true
+    @test count === 4
 
-wait(sv)
-sleep(1)
-@test terminated === true
-@test count === 4
-
-close(tmr)
+    close(tmr)
+catch e
+    @error "[test_combo] error: $e"
+    @test false
+finally
+    shutdown()
+end
+@info "[test_combo] stop"

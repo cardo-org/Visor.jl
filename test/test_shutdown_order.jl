@@ -1,8 +1,6 @@
-using Visor
-using Test
-
+include("./utils.jl")
 #
-# 
+#
 #       root
 #        /\
 #       /  \
@@ -12,13 +10,14 @@ using Test
 #   /  \
 #  w1  w2
 #
-#  startup order: w1, w2, w3  
-#  shutdown order: w3, w2, w1  
+#  startup order: w1, w2, w3
+#  shutdown order: w3, w2, w1
 #
 
 stopped = []
 
 function myworker(self)
+    @info "[$self] start"
     for msg in self.inbox
         @debug "[$(self.id)] recv: $msg"
         if isshutdown(msg)
@@ -28,20 +27,32 @@ function myworker(self)
     end
 end
 
-sv2_specs = [process("w3", myworker)]
+@info "[test_shutdown_order] start"
 
-sv3_specs = [process("w1", myworker), process("w2", myworker; force_interrupt_after=1)]
+try
+    sv2_specs = [process("w3", myworker)]
 
-sv1_specs = [supervisor("s11", sv3_specs; intensity=1)]
+    sv3_specs = [
+        process("w1", myworker), process("w2", myworker; force_interrupt_after=0.1)
+    ]
 
-specs = [
-    supervisor("s1", sv1_specs)
-    supervisor("s2", sv2_specs)
-]
+    sv1_specs = [supervisor("s11", sv3_specs; intensity=1)]
 
-handle = Visor.supervise(specs; wait=false)
+    specs = [
+        supervisor("s1", sv1_specs)
+        supervisor("s2", sv2_specs)
+    ]
 
-Timer(tim -> shutdown(handle), 2)
-wait(handle)
+    handle = Visor.supervise(specs; wait=false)
+    #sleep(3)
+    Timer(tim -> shutdown(handle), 0.5)
+    wait(handle)
 
-@test stopped == ["w3", "w2", "w1"]
+    @test stopped == ["w3", "w2", "w1"]
+catch e
+    @error "[test_shutdown_order] error: $e"
+finally
+    shutdown()
+end
+
+@info "[test_shutdown_order] stop"

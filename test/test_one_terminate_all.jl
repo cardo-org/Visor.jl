@@ -1,5 +1,4 @@
-using Visor
-using Test
+include("utils.jl")
 
 terminated = true
 
@@ -14,6 +13,10 @@ function task_one(pd)
     return sleep(0.5)
 end
 
+function task_fail(pd)
+    return error("boom")
+end
+
 function task_all(pd)
     for msg in pd.inbox
         if isshutdown(msg)
@@ -22,16 +25,24 @@ function task_all(pd)
     end
 end
 
-Timer(terminate, 5)
-
+@info "[test_one_terminate_all] start"
 try
+    timer = Timer(terminate, 3)
     spec = [process("p1", task_all), process("p2", task_one), process("p3", task_all)]
     sv = supervise(spec; strategy=:one_terminate_all, terminateif=:empty)
 
-    Visor.dump()
-    info = procs()
+    @test terminated
+    close(timer)
+
+    global terminated = true
+    timer = Timer(terminate, 3)
+    spec = [process("p1", task_all), process("p2", task_fail), process("p3", task_all)]
+    sv = supervise(spec; strategy=:one_terminate_all, terminateif=:empty)
 
     @test terminated
+    close(timer)
+
 finally
     shutdown()
 end
+@info "[test_one_terminate_all] stop"

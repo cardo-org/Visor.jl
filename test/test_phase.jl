@@ -15,14 +15,22 @@ function mytask(pd)
     end
 end
 
-proc = process(mytask)
-spec = [proc]
+@info "[test_phase] start"
+try
+    proc = process(mytask)
+    spec = [proc]
 
-Timer(terminate, 2)
-sv = supervise(spec; wait=false)
+    Timer(terminate, 0.2)
+    sv = supervise(spec; wait=false)
 
-setphase(proc, :ground)
+    setphase(proc, :ground)
 
-wait(sv)
+    @test getphase(proc) === :ground
+catch e
+    @error "[test_phase] error: $e"
+    @test false
+finally
+    shutdown()
+end
 
-@test getphase(proc) === :ground
+@info "[test_phase] stop"
