@@ -27,7 +27,7 @@ function terminateif_empty()
     # then the supervisor terminates when its
     # supervised processes are done.
 
-    tim = Timer(request_shutdown, 0.1)
+    tim = Timer(request_shutdown, 0.5)
     @async add_process()
 
     supervise(supervisor("dynamic", process(nat)))

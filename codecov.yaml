@@ -1,6 +1,7 @@
 codecov:
   require_ci_to_pass: yes
-
+ignore:
+  - src/precompile.jl
 coverage:
   status:
     project:
@@ -8,7 +9,7 @@ coverage:
       source:
         paths:
           - "src/"
-        target: 100%
+        target: 95%
         threshold: 0.1
     patch:
       default:

@@ -13,19 +13,19 @@ function task_all(pd)
     return nothing
 end
 
-function case1()
+function run()
     try
         spec = [process("p1", task_all), process("p2", task_one), process("p3", task_all)]
         sv = supervisor("sv", spec)
 
         Visor.format4print(sv.processes)
         Visor.format4print(collect(values(sv.processes)))
-        return nothing
+    catch e
+        @error "[precompile] error: $e"
     finally
         shutdown()
     end
-
     return nothing
 end
 
-case1()
+run()

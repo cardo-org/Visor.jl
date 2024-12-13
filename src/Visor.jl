@@ -578,7 +578,9 @@ function schedule_start(process::Process, supervisor)
     if !isnan(process.debounce_time)
         sleep(process.debounce_time)
     end
-    if supervisor.status === idle
+    # a supervisor may be running, idle or done
+    # if supervisor is idle or down it means that a shutdown request was issued.
+    if supervisor.status !== running
         @debug "supervisor [$supervisor] terminated, skipping [$process] restart "
     else
         process.task = start(process)
