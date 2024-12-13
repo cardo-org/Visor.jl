@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.7.4 (-- December, 2024)
+## 0.7.4 (13 December, 2024)
 
 - Improved the logic of processes restart.
 
