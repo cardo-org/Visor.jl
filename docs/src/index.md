@@ -50,7 +50,7 @@ function level_2_task(td)
             break
         end
         # send a data message to process named level_1_task
-        cast(td, "level_1_task", AppData(n))
+        cast("level_1_task", AppData(n))
         n += 1
     end
     @info "shutting down $td"
