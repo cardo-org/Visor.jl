@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.7.5
+
+- Remove terminated supervisor from processes's list of parent supervisor.
+
+- Fixed demo example (#8)
+
 ## 0.7.4 (13 December, 2024)
 
 - Improved the logic of processes restart.

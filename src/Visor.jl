@@ -904,7 +904,6 @@ end
 
 function force_shutdown(process)
     if !istaskdone(process.task)
-        @debug "[$process]: forcing shutdown"
         schedule(process.task, ProcessInterrupt(process.id); error=true)
     end
 end
@@ -982,15 +981,18 @@ end
 # Stops all managed children processes and terminate supervisor `process`.
 function shutdown(sv::Supervisor, reset::Bool=true)
     @debug "[$sv] supervisor: shutdown request (reset=$reset)"
-    sv.status = idle
     if isdefined(sv, :task) && !istaskdone(sv.task)
         if isopen(sv.inbox)
             put!(sv.inbox, Shutdown(; reset=reset))
             close(sv.inbox)
         end
         wait(sv.task)
+        sv.status = idle
     end
-    reset && empty!(sv.processes)
+    if reset
+        empty!(sv.processes)
+        isdefined(sv, :supervisor) && delete!(sv.supervisor.processes, sv.id)
+    end
     return nothing
 end
 
