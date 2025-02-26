@@ -144,6 +144,7 @@ mutable struct Process <: Supervised
     force_interrupt_after::Float64
     stop_waiting_after::Float64
     debounce_time::Float64
+    trace_exception::Bool
     thread::Bool
     onhold::Bool
     inbox::Channel
@@ -157,6 +158,7 @@ mutable struct Process <: Supervised
         force_interrupt_after=INTERRUPT_PROCESS_AFTER,
         stop_waiting_after=STOP_WAITING_AFTER,
         debounce_time=NaN,
+        trace_exception=false,
         thread=false,
         restart=:transient,
         supervisor=nothing,
@@ -175,6 +177,7 @@ mutable struct Process <: Supervised
                 force_interrupt_after,
                 stop_waiting_after,
                 debounce_time,
+                trace_exception,
                 thread,
                 false,
                 Channel(INBOX_CAPACITY),
@@ -355,6 +358,7 @@ end
             force_interrupt_after::Real=1.0,
             stop_waiting_after::Real=Inf,
             debounce_time=NaN,
+            trace_exception=false,
             thread=false,
             restart=:transient)::ProcessSpec
 
@@ -375,6 +379,7 @@ function process(
     force_interrupt_after::Real=INTERRUPT_PROCESS_AFTER,
     stop_waiting_after::Real=STOP_WAITING_AFTER,
     debounce_time::Real=NaN,
+    trace_exception=false,
     thread::Bool=false,
     restart=:transient,
 )::Process
@@ -392,6 +397,7 @@ function process(
         force_interrupt_after,
         stop_waiting_after,
         debounce_time,
+        trace_exception,
         thread,
         restart,
     )
@@ -416,6 +422,7 @@ process(
     force_interrupt_after::Real=INTERRUPT_PROCESS_AFTER,
     stop_waiting_after::Real=STOP_WAITING_AFTER,
     debounce_time=NaN,
+    trace_exception=false,
     thread=false,
     restart=:transient,
 )::Process = process(
@@ -425,6 +432,7 @@ process(
     namedargs=namedargs,
     force_interrupt_after=force_interrupt_after,
     debounce_time=debounce_time,
+    trace_exception,
     stop_waiting_after=stop_waiting_after,
     thread=thread,
     restart=restart,
@@ -1450,7 +1458,10 @@ function wait_child(supervisor::Supervisor, process::Process)
             exitby_forced_shutdown(supervisor, process)
             handle_event(supervisor, ProcessInterrupted(process))
         else
-            @debug "[$process] exception: $taskerr"
+            @warn "[$process]: $taskerr"
+            if process.trace_exception
+                showerror(stderr, e, catch_backtrace())
+            end
             @debug "[$supervisor]: applying restart policy for [$process] ($(Int.(floor.(process.startstamps))))"
             exitby_exception(supervisor, process)
             handle_event(supervisor, ProcessError(process, taskerr))

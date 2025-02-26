@@ -1,6 +1,8 @@
 # Change Log
 
-## 0.7.5
+## 0.8.0 (26 February, 2025)
+
+- Added trace_exception option for showing the error stack trace when process exits by an exception.
 
 - Remove terminated supervisor from processes's list of parent supervisor.
 

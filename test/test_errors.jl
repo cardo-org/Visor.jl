@@ -1,5 +1,9 @@
 include("utils.jl")
 
+function error_task(pd)
+    return error("boom")
+end
+
 # Throws an exception because the supervisor fake-supervisor does not exist
 function getrunning(sv)
     process = from("fake-supervisor")
@@ -24,5 +28,7 @@ running = Visor.nproc(sv)
 @test_throws MethodError getrunning(sv)
 
 @test_throws ErrorException process(worker, restart=:invalid_restart)
+
+startup(sv, process(error_task; restart=:temporary, trace_exception=true))
 
 shutdown(sv)
