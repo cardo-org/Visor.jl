@@ -159,7 +159,7 @@ mutable struct Process <: Supervised
         stop_waiting_after=STOP_WAITING_AFTER,
         debounce_time=NaN,
         trace_exception=false,
-        thread=false,
+        thread=true,
         restart=:transient,
         supervisor=nothing,
     )
@@ -192,7 +192,7 @@ setphase(node::Supervised, phase::Symbol) = node.phase = phase
 getphase(node::Supervised) = node.phase
 
 function __init__()
-    @async wait_signal(__ROOT__)
+    Threads.@spawn wait_signal(__ROOT__)
 end
 
 clear_hold(process::Process) = process.onhold = false
@@ -359,7 +359,7 @@ end
             stop_waiting_after::Real=Inf,
             debounce_time=NaN,
             trace_exception=false,
-            thread=false,
+            thread=true,
             restart=:transient)::ProcessSpec
 
 Declare a supervised task that may be forcibly interrupted.
@@ -380,7 +380,7 @@ function process(
     stop_waiting_after::Real=STOP_WAITING_AFTER,
     debounce_time::Real=NaN,
     trace_exception=false,
-    thread::Bool=false,
+    thread::Bool=true,
     restart=:transient,
 )::Process
     if !(restart in [:permanent, :temporary, :transient])
@@ -410,7 +410,7 @@ end
             force_interrupt_after::Real=1.0,
             stop_waiting_after::Real=Inf,
             debounce_time=NaN,
-            thread=false,
+            thread=true,
             restart=:transient)::ProcessSpec
 
 The process name is set equals to `string(fn)`.
@@ -423,7 +423,7 @@ process(
     stop_waiting_after::Real=STOP_WAITING_AFTER,
     debounce_time=NaN,
     trace_exception=false,
-    thread=false,
+    thread=true,
     restart=:transient,
 )::Process = process(
     string(fn),
@@ -503,7 +503,7 @@ function start(proc::Process)
     else
         proc.task = @async proc.fn(proc, proc.args...; proc.namedargs...)
     end
-    @async wait_child(proc.supervisor, proc)
+    Threads.@spawn wait_child(proc.supervisor, proc)
     proc.status = running
 
     return proc.task
@@ -518,13 +518,13 @@ function start(sv::Supervisor)
 
     @debug "[$sv] supervisor starting"
     sv.inbox = Channel(INBOX_CAPACITY)
-    sv.task = @async manage(sv)
+    sv.task = Threads.@spawn manage(sv)
     sv.status = running
 
     @debug "[$sv] task: $(pointer_from_objref(sv.task))"
     startchildren(sv)
     if isdefined(sv, :supervisor)
-        @async wait_child(sv.supervisor, sv)
+        Threads.@spawn wait_child(sv.supervisor, sv)
     else
         (sv.id !== ROOT_SUPERVISOR) && @error "[$sv] undefined supervisor"
     end
@@ -763,7 +763,7 @@ function terminate_others(proc)
     for (name, p) in collect(proc.supervisor.processes)
         if p !== proc
             p.status = idle
-            @async shutdown(p)
+            Threads.@spawn shutdown(p)
         end
     end
 end
@@ -944,7 +944,7 @@ function waitprocess(process, shtmsg, maxwait=-1)
         barrier_timer = Timer((tim) -> notify(pcond, false), maxwait)
     end
     try
-        @async wait_for_termination(process, pcond)
+        Threads.@spawn wait_for_termination(process, pcond)
         if wait(pcond) === false
             @warn "stop waiting and process [$process] still running"
         end
@@ -1223,7 +1223,7 @@ function call(target::Supervised, request::Any; timeout::Real=3)
             timeout,
         )
     end
-    @async wait_response(resp_cond, inbox)
+    Threads.@spawn wait_response(resp_cond, inbox)
     try
         wait(resp_cond)
     catch e
