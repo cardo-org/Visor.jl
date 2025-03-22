@@ -944,7 +944,10 @@ function waitprocess(process, shtmsg, maxwait=-1)
         barrier_timer = Timer((tim) -> notify(pcond, false), maxwait)
     end
     try
-        Threads.@spawn wait_for_termination(process, pcond)
+        # Using an @async because @spawn does not work.
+        # I'm not able to figure out the reason.
+        # Threads.@spawn wait_for_termination(process, pcond)
+        @async wait_for_termination(process, pcond)
         if wait(pcond) === false
             @warn "stop waiting and process [$process] still running"
         end
