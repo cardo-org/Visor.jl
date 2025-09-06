@@ -1,7 +1,7 @@
 name = "Visor"
 uuid = "cf786855-3531-4b86-ba6e-3e33dce7dcdb"
 authors = ["Attilio Donà"]
-version = "0.8.1"
+version = "0.8.2"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
@@ -11,10 +11,10 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [compat]
-DataStructures = "0.18"
+DataStructures = "0.19"
 Dates = "1.6"
 Logging = "1.6"
-PrecompileTools = "1.2.1"
+PrecompileTools = "1.2, 1.3"
 UUIDs = "1.6"
 julia = "1.6"
 
