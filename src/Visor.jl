@@ -1461,7 +1461,7 @@ function wait_child(supervisor::Supervisor, process::Process)
             exitby_forced_shutdown(supervisor, process)
             handle_event(supervisor, ProcessInterrupted(process))
         else
-            @warn "[$process]: $taskerr"
+            @warn "[$process]: $taskerr ($e)"
             if process.trace_exception
                 showerror(stderr, e, catch_backtrace())
             end
