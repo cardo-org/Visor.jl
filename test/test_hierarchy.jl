@@ -32,7 +32,7 @@ try
 
     sv3_specs = [
         process("w1", worker; namedargs=(steps=15, check_interrupt_every=1)),
-        process("w2", worker; namedargs=(steps=6, check_interrupt_every=2)),
+        process("w2", worker; namedargs=(steps=12, check_interrupt_every=2)),
         process("127.0.0.1", worker; namedargs=(steps=12, check_interrupt_every=2)),
     ]
 
