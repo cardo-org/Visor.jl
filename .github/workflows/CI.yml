@@ -21,7 +21,6 @@ jobs:
           - '1' # automatically expands to the latest stable 1.x release of Julia
         os:
           - ubuntu-latest
-          - macOS-latest
           - windows-latest
         arch:
           - x64
@@ -29,6 +28,9 @@ jobs:
           - os: ubuntu-latest
             version: '1'
             arch: x86
+          - os: macOS-latest
+            version: '1'
+            arch: aarch64
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
