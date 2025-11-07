@@ -16,7 +16,7 @@ function fooob(pd)
 
     while true
         try
-            sleep(wait_time / 2)
+            sleep(wait_time / 4)
             count += 1
             @info "[test_ignore_process_interrupt][$pd] alive"
             if count === 5

@@ -92,6 +92,14 @@ const GROUP = get(ENV, "GROUP", "all")
             include("test_event_handler.jl")
         end
     end
+    if GROUP == "all" || GROUP == "concurrent"
+        @time @safetestset "concurrent_add" begin
+            include("test_concurrent_add.jl")
+        end
+        @time @safetestset "concurrent_shutdown" begin
+            include("test_concurrent_shutdown.jl")
+        end
+    end
 end
 
 @info "expected tests: 76"

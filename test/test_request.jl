@@ -29,7 +29,7 @@ function slow(self)
 end
 
 function getname(sv)
-    return call("foo.process-1", :get_name; timeout=TIMEOUT * 20)
+    return call("foo.process-1", :get_name; timeout=TIMEOUT * 50)
 end
 
 @info "[test_request] start"

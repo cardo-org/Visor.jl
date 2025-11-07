@@ -79,6 +79,7 @@ format4print(lst::AbstractArray) = join(["$(v.id)=>$v($(v.status))" for v in lst
 abstract type Supervised end
 
 mutable struct Supervisor <: Supervised
+    lock::ReentrantLock
     id::String
     status::SupervisedStatus
     phase::Symbol
@@ -101,7 +102,16 @@ mutable struct Supervisor <: Supervised
         evhandler=nothing,
     )
         return new(
-            id, idle, :undef, processes, intensity, period, strategy, terminateif, evhandler
+            ReentrantLock(),
+            id,
+            idle,
+            :undef,
+            processes,
+            intensity,
+            period,
+            strategy,
+            terminateif,
+            evhandler,
         )
     end
     function Supervisor(
@@ -115,6 +125,7 @@ mutable struct Supervisor <: Supervised
         evhandler=nothing,
     )
         return new(
+            ReentrantLock(),
             id,
             idle,
             :undef,
@@ -481,15 +492,27 @@ struct SupervisorShuttable end
 # Returns the list of running nodes supervised by `supervisor`:
 # processes and supervisors direct children.
 function running_nodes(supervisor)
-    return collect(Iterators.filter(p -> !istaskdone(p.task), values(supervisor.processes)))
+    lock(supervisor.lock)
+    try
+        return collect(
+            Iterators.filter(p -> !istaskdone(p.task), values(supervisor.processes))
+        )
+    finally
+        unlock(supervisor.lock)
+    end
 end
 
 isrunning(proc) = isdefined(proc, :task) && !istaskdone(proc.task)
 
 function startchildren(sv::Supervisor)
-    for node in values(sv.processes)
-        @debug "[$sv]: starting [$node]"
-        start(node)
+    lock(sv.lock)
+    try
+        for node in values(sv.processes)
+            @debug "[$sv]: starting [$node]"
+            start(node)
+        end
+    finally
+        unlock(sv.lock)
     end
 end
 
@@ -660,19 +683,29 @@ Add supervised `proc` to the children's collection of the controlling `superviso
 """
 function add_node(supervisor::Supervisor, proc::Supervised)
     @debug "[$supervisor] starting proc: [$proc]"
-    if isa(proc, Supervisor)
-        add_supervisor(supervisor, proc)
-    else
-        proc.supervisor = supervisor
-        supervisor.processes[proc.id] = proc
+    lock(supervisor.lock)
+    try
+        if isa(proc, Supervisor)
+            add_supervisor(supervisor, proc)
+        else
+            proc.supervisor = supervisor
+            supervisor.processes[proc.id] = proc
+        end
+        return proc
+    finally
+        unlock(supervisor.lock)
     end
-    return proc
 end
 
 function remove_node(supervisor::Supervisor, proc::Supervised)
     @debug "[$supervisor] removing node: [$proc]"
-    delete!(supervisor.processes, proc.id)
-    return proc
+    lock(supervisor.lock)
+    try
+        delete!(supervisor.processes, proc.id)
+        return proc
+    finally
+        unlock(supervisor.lock)
+    end
 end
 
 function add_supervisor(parent::Supervisor, svisor::Supervisor)::Supervisor
@@ -728,27 +761,34 @@ end
 function supervisor_shutdown(
     supervisor, failed_proc::Union{Supervised,Nothing}=nothing, reset::Bool=false
 )
-    stopped_procs = []
-    revs = reverse(collect(values(supervisor.processes)))
-    for p in revs
-        @debug "[$p] set onhold"
-        hold(p)
-        push!(stopped_procs, p)
-        if p === failed_proc
-            @debug "[$p] failed_proc reached, stopping reverse shutdown"
-            break
-        end
-        if isdefined(p, :task)
-            if istaskdone(p.task)
-                @debug "[$p] skipping shutdown: task already done"
-            else
-                # shutdown is sequential because in case a node refuses
-                # to shutdown remaining nodes aren't shut down.
-                shutdown(p, reset)
+    lock(supervisor.lock)
+    try
+        stopped_procs = []
+        ps = values(supervisor.processes)
+        revs = reverse(collect(ps))
+
+        for p in revs
+            @debug "[$p] set onhold"
+            hold(p)
+            push!(stopped_procs, p)
+            if p === failed_proc
+                @debug "[$p] failed_proc reached, stopping reverse shutdown"
+                break
+            end
+            if isdefined(p, :task)
+                if istaskdone(p.task)
+                    @debug "[$p] skipping shutdown: task already done"
+                else
+                    # shutdown is sequential because in case a node refuses
+                    # to shutdown remaining nodes aren't shut down.
+                    shutdown(p, reset)
+                end
             end
         end
+        return reverse(stopped_procs)
+    finally
+        unlock(supervisor.lock)
     end
-    return reverse(stopped_procs)
 end
 
 function root_supervisor(process::Supervised)
@@ -760,11 +800,16 @@ function root_supervisor(process::Supervised)
 end
 
 function terminate_others(proc)
-    for (name, p) in collect(proc.supervisor.processes)
-        if p !== proc
-            p.status = idle
-            Threads.@spawn shutdown(p)
+    lock(proc.supervisor.lock)
+    try
+        for (name, p) in collect(proc.supervisor.processes)
+            if p !== proc
+                p.status = idle
+                Threads.@spawn shutdown(p)
+            end
         end
+    finally
+        unlock(proc.supervisor.lock)
     end
 end
 
@@ -822,8 +867,13 @@ function unknown_message(sv, msg)
 end
 
 function isalldone(supervisor)
-    res = all(proc -> proc.status in [done, idle], values(supervisor.processes))
-    return res
+    lock(supervisor.lock)
+    try
+        res = all(proc -> proc.status in [done, idle], values(supervisor.processes))
+        return res
+    finally
+        unlock(supervisor.lock)
+    end
 end
 
 """
@@ -895,6 +945,7 @@ function manage(supervisor)
         end
     catch e
         @error "[$supervisor]: error: $e"
+        rethrow()
     finally
         @debug "[$supervisor] terminating"
         #        while isready(supervisor.inbox)
@@ -929,27 +980,36 @@ function ifrestart(fn::Function, process::Process)
     end
 end
 
-function wait_for_termination(process, cond)
+function wait_for_termination(process, lck, cond)
     try
         wait(process.task)
     finally
-        notify(cond, true)
+        lock(lck) do
+            notify(cond, true)
+        end
     end
 end
 
 function waitprocess(process, shtmsg, maxwait=-1)
     @debug "[$process] shutdown: waiting for task termination (maxwait=$maxwait)"
-    pcond = Condition()
+    lck = ReentrantLock()
+    pcond = Threads.Condition(lck)
     if Inf > maxwait > 0
-        barrier_timer = Timer((tim) -> notify(pcond, false), maxwait)
+        barrier_timer = Timer((tim) -> lock(lck) do
+            notify(pcond, false)
+        end, maxwait)
     end
+
     try
         # Using an @async because @spawn does not work.
         # I'm not able to figure out the reason.
-        # Threads.@spawn wait_for_termination(process, pcond)
-        @async wait_for_termination(process, pcond)
-        if wait(pcond) === false
-            @warn "stop waiting and process [$process] still running"
+        #Threads.@spawn wait_for_termination(process, lck, pcond)
+        @async wait_for_termination(process, lck, pcond)
+
+        lock(lck) do
+            if wait(pcond) === false
+                @warn "stop waiting and process [$process] still running"
+            end
         end
     finally
         Inf > maxwait > 0 && close(barrier_timer)
@@ -1004,6 +1064,7 @@ function shutdown(sv::Supervisor, reset::Bool=true)
         empty!(sv.processes)
         isdefined(sv, :supervisor) && delete!(sv.supervisor.processes, sv.id)
     end
+    sleep(0.01)
     return nothing
 end
 
@@ -1049,12 +1110,14 @@ function isshutdown(process::Supervised)
     return sts
 end
 
-function wait_response(resp_cond, ch)
+function wait_response(resp_cond, lck, ch)
     response = take!(ch)
-    if isa(response, Exception)
-        notify(resp_cond, response; error=true)
-    else
-        notify(resp_cond, response)
+    lock(lck) do
+        if isa(response, Exception)
+            notify(resp_cond, response; error=true)
+        else
+            notify(resp_cond, response)
+        end
     end
 end
 
@@ -1213,22 +1276,29 @@ function call(target::Supervised, request::Any; timeout::Real=3)
 
     #istaskdone(target.task) && throw(ProcessNotRunning(target.id))
 
-    resp_cond = Condition()
+    lck = ReentrantLock()
+    resp_cond = Base.GenericCondition{ReentrantLock}(lck)
     inbox = Channel(1)
     put!(target.inbox, Request(inbox, request))
     if timeout != -1
         t = Timer(
-            (tim) -> notify(
-                resp_cond,
-                ErrorException("request [$request] to [$target] timed out");
-                error=true,
-            ),
+            (tim) -> lock(lck) do
+                notify(
+                    resp_cond,
+                    ErrorException("request [$request] to [$target] timed out");
+                    error=true,
+                )
+            end,
             timeout,
         )
     end
-    Threads.@spawn wait_response(resp_cond, inbox)
+    Threads.@spawn wait_response(resp_cond, lck, inbox)
     try
-        wait(resp_cond)
+        res = nothing
+        lock(lck) do
+            res = wait(resp_cond)
+        end
+        return res
     catch e
         rethrow()
     finally

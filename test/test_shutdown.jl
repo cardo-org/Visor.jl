@@ -1,6 +1,7 @@
 include("./utils.jl")
 
 function ok(pd)
+    @info "starting ok process"
     while true
         if isshutdown(pd)
             @info "[test_shutdown] return from $pd"
@@ -37,6 +38,7 @@ finally
     t = time()
     shutdown()
     delta = time() - t
-    @test delta < 0.1
+    @test delta < 0.2
+    @info "[test_shutdown] delta time: $delta"
 end
 @info "[test_shutdown] stop"

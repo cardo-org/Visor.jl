@@ -3,11 +3,17 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2025-11-08
+
+### Fixed
+
+- Improve concurrency.
+
 ## [0.8.2] - 2025-09-06
 
 ### Changed
 
-- Updated DataStructures and ProcompileTools compat entries.
+- Update DataStructures and ProcompileTools compat entries.
 
 ## [0.8.1] - 2025-03-22
 
@@ -17,19 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] - 2025-02-26
 
-- Added trace_exception option for showing the error stack trace when process exits by an exception.
+- Add trace_exception option for showing the error stack trace when process exits by an exception.
 
 - Remove terminated supervisor from processes's list of parent supervisor.
 
-- Fixed demo example (#8)
+- Fix demo example (#8)
 
 ## [0.7.4] - 2024-12-13
 
-- Improved the logic of processes restart.
+- Improve the logic of processes restart.
 
 ## [0.7.3] - 2024-11-17
 
-- Added from_name() API method. It may be useful if the process name contains dots.
+- Add from_name() API method. It may be useful if the process name contains dots.
 
 ## [0.7.2] - 2024-10-15
 
@@ -73,14 +79,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2023-12-03
 
-- Renamed functions:
+- Rename functions:
   - is_shutdown=>isshutdown
   - is_request=>isrequest
   - if_restart=>ifrestart
 
 - Add `handler` keyword arg to supervise. `handler` value is a callback function for handling process lifecycles events. Currently manages events are task exceptions and `ProcessFatal`.
   
-- Removed `supervisor_shutdown` in case of a `ProcessFatal` exception. This implies that the other processes continue to run despite the process that thrown `ProcessFatal` will never restart.
+- Remove `supervisor_shutdown` in case of a `ProcessFatal` exception. This implies that the other processes continue to run despite the process that thrown `ProcessFatal` will never restart.
 
 - Log a warn message when starting a process task throws a MethodError exception.
 
