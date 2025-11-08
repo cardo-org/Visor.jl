@@ -1,3 +1,6 @@
+precompile(Visor.supervise, (Visor.Supervisor,))
+precompile(Visor.supervise, (Vector{Visor.Supervised},))
+
 function task_one(pd)
     return sleep(0.5)
 end
@@ -15,8 +18,10 @@ end
 
 function run()
     try
-        spec = [process("p1", task_all), process("p2", task_one), process("p3", task_all)]
-        sv = supervisor("sv", spec)
+        procs_spec = [
+            process("p1", task_all), process("p2", task_one), process("p3", task_all)
+        ]
+        sv = supervisor("sv", procs_spec)
 
         Visor.format4print(sv.processes)
         Visor.format4print(collect(values(sv.processes)))

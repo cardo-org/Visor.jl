@@ -28,7 +28,7 @@ end
 function normal_return()
     p = process(normal_return_process)
     supervise(p; handler=handler)
-    sleep(0.1)
+    sleep(0.5)
     @test haskey(ttrace, Visor.ProcessReturn(p))
     return nothing
 end

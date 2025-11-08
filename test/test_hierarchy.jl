@@ -78,18 +78,20 @@ try
 
     wait(handle)
 
-    #for (tst, result) in ttrace
-    #    @test result
-    #end
+    for (tst, result) in ttrace
+        @test result
+    end
 
     process_tree = procs()
     @test issetequal(keys(process_tree["root"]), ["sv1", "sv2"])
     @test issetequal(keys(process_tree["root"]["sv1"]), ["sv1-3"])
     @test isempty(process_tree["root"]["sv2"])
+    close(t1)
+    close(t2)
 catch e
     @error "[test_hierarchy] error: $e"
     showerror(stdout, e, catch_backtrace())
-    #@test false
+    @test false
 finally
     shutdown()
 end

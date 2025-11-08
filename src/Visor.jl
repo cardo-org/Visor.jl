@@ -284,7 +284,7 @@ end
         intensity=DEFAULT_INTENSITY,
         period=DEFAULT_PERIOD,
         strategy=:one_for_one,
-        terminateif=:empty)::SupervisorSpec
+        terminateif=:empty)::Supervisor
 
 Declare a supervisor of one or more `processes`.
 

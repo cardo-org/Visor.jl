@@ -7,3 +7,5 @@ lcov.info
 docs/src/stop_process.md
 Manifest.toml
 .JuliaFormatter.toml
+*.old
+*.sav
