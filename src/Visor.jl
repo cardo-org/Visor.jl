@@ -896,7 +896,6 @@ function resync(supervisor, restarts::Vector{Supervised})
 end
 
 function shuttable(supervisor)
-    @debug "[$supervisor] procs:[$(format4print(supervisor.processes))], terminateif $(supervisor.terminateif)"
     if supervisor.terminateif === :empty && isalldone(supervisor)
         put!(supervisor.inbox, SupervisorShuttable())
     end
