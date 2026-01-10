@@ -229,7 +229,12 @@ function setname(process::Process, new_name::AbstractString)
                 child[new_name] = process
             end
         end
-        process.supervisor.processes = child
+        lock(process.supervisor.lock)
+        try
+            process.supervisor.processes = child
+        finally
+            unlock(process.supervisor.lock)
+        end
     end
     return process.id = new_name
 end
@@ -1060,8 +1065,13 @@ function shutdown(sv::Supervisor, reset::Bool=true)
         sv.status = idle
     end
     if reset
-        empty!(sv.processes)
-        isdefined(sv, :supervisor) && delete!(sv.supervisor.processes, sv.id)
+        lock(sv.lock)
+        try
+            empty!(sv.processes)
+            isdefined(sv, :supervisor) && delete!(sv.supervisor.processes, sv.id)
+        finally
+            unlock(sv.lock)
+        end
     end
     sleep(0.01)
     return nothing

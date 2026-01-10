@@ -3,6 +3,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-01-10
+
+### Fixed
+
+- Protect modification of supervised processes list with a lock.
+
 ## [0.8.3] - 2025-11-08
 
 ### Fixed
