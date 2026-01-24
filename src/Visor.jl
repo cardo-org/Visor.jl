@@ -715,11 +715,14 @@ end
 
 function add_supervisor(parent::Supervisor, svisor::Supervisor)::Supervisor
     @debug "[$parent]: add supervisor [$svisor]"
-
-    parent.processes[svisor.id] = svisor
-    svisor.supervisor = parent
-
-    return svisor
+    lock(parent.lock)
+    try
+        parent.processes[svisor.id] = svisor
+        svisor.supervisor = parent
+        return svisor
+    finally
+        unlock(parent.lock)
+    end
 end
 
 """
@@ -1005,9 +1008,6 @@ function waitprocess(process, shtmsg, maxwait=-1)
     end
 
     try
-        # Using an @async because @spawn does not work.
-        # I'm not able to figure out the reason.
-        #Threads.@spawn wait_for_termination(process, lck, pcond)
         @async wait_for_termination(process, lck, pcond)
 
         lock(lck) do
@@ -1061,18 +1061,30 @@ function shutdown(sv::Supervisor, reset::Bool=true)
             put!(sv.inbox, Shutdown(; reset=reset))
             close(sv.inbox)
         end
-        wait(sv.task)
+        try
+            wait(sv.task)
+        catch
+        end
         sv.status = idle
     end
     if reset
         lock(sv.lock)
         try
             empty!(sv.processes)
-            isdefined(sv, :supervisor) && delete!(sv.supervisor.processes, sv.id)
         finally
             unlock(sv.lock)
         end
+
+        if isdefined(sv, :supervisor)
+            lock(sv.supervisor.lock)
+            try
+                delete!(sv.supervisor.processes, sv.id)
+            finally
+                unlock(sv.supervisor.lock)
+            end
+        end
     end
+
     sleep(0.01)
     return nothing
 end
